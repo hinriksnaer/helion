@@ -46,6 +46,8 @@ from .. import exc
 from ..runtime.precompile_shim import already_compiled
 from ..runtime.precompile_shim import make_precompiler
 from .benchmarking import interleaved_bench
+from .metrics import AutotuneMetrics
+from .metrics import register_autotune_metrics
 from .logger import SUPPRESSED_TRITON_CODE_MSG
 from .logger import AutotuneLogEntry
 from .logger import AutotuningLogger
@@ -202,6 +204,12 @@ class BaseSearch(BaseAutotuner):
         self._precompile_tmpdir: tempfile.TemporaryDirectory[str] | None = None
         self._precompile_args_path: str | None = None
         self._precompile_result_counter = count()
+        self._autotune_metrics: AutotuneMetrics | None = None
+        if self.settings.collect_autotune_metrics:
+            self._autotune_metrics = AutotuneMetrics(
+                kernel_name=getattr(getattr(self.kernel, "kernel", None), "name", ""),
+                input_shapes=str([tuple(arg.shape) if isinstance(arg, torch.Tensor) else type(arg) for arg in self.args]),
+            )
         (
             self._baseline_output,
             self._mutated_arg_indices,
@@ -479,6 +487,7 @@ class BaseSearch(BaseAutotuner):
                 and not self._validate_against_baseline(config, output, self.args)
             ):
                 # Accuracy check failed; reject this config
+                self.counters["benchmark_failure"] += 1
                 return inf
             from triton.testing import do_bench
 
@@ -554,6 +563,7 @@ class BaseSearch(BaseAutotuner):
                 )
                 self.log.debug(f"Benchmarking failed: {type(e).__name__}: {e}")
                 self.kernel.maybe_log_repro(self.log.debug, self.args, config)
+            self.counters["benchmark_failure"] += 1
             return inf
 
     def set_adaptive_compile_timeout(
@@ -824,6 +834,13 @@ class BaseSearch(BaseAutotuner):
             best = self._autotune()
         end = time.perf_counter()
         kernel_decorator = self.kernel.format_kernel_decorator(best, self.settings)
+        if self._autotune_metrics is not None:
+            self._autotune_metrics.num_configs_tested = self.counters["benchmark"]
+            self._autotune_metrics.num_failures = self.counters["benchmark_failure"]
+            self._autotune_metrics.num_generations = self._current_generation
+            self._autotune_metrics.best_perf_ms = self.best_perf_so_far
+            self._autotune_metrics.finalize()
+            register_autotune_metrics(self._autotune_metrics)
         self.log(
             f"Autotuning complete in {end - start:.1f}s after searching {self.counters['benchmark']} configs.\n"
             "One can hardcode the best config and skip autotuning with:\n"
@@ -1162,7 +1179,6 @@ class PopulationBasedSearch(BaseSearch):
             # Benchmark the candidates
             unbenchmarked = [m for m in candidates if len(m.perfs) == 0]
             if unbenchmarked:
-                self.set_generation(self._current_generation + 1)
                 self.parallel_benchmark_population(
                     unbenchmarked, desc=f"Finishing round {round_num}"
                 )
