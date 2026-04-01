@@ -44,6 +44,8 @@ from helion.autotuner import LFBOTreeSearch
 from helion.autotuner import PatternSearch
 from helion.autotuner.base_search import BaseSearch
 from helion.autotuner.base_search import PopulationMember
+from helion.autotuner.benchmark_provider import BenchmarkResult
+from helion.autotuner.benchmark_provider import LocalBenchmarkProvider
 from helion.autotuner.config_fragment import BooleanFragment
 from helion.autotuner.config_fragment import EnumFragment
 from helion.autotuner.config_fragment import IntegerFragment
@@ -109,13 +111,27 @@ class TestAutotuneIgnoreErrors(TestCase):
         search.args = args
         search._autotune_metrics = AutotuneMetrics()
         search.log = AutotuningLogger(settings)
-        search._mutated_arg_indices = []
-        search.best_perf_so_far = float("inf")
+        # Create a minimal LocalBenchmarkProvider (bypassing __init__)
+        bp = LocalBenchmarkProvider.__new__(LocalBenchmarkProvider)
+        bp.kernel = search.kernel
+        bp.settings = settings
+        bp.config_spec = None
+        bp.args = args
+        bp.log = search.log
+        bp._autotune_metrics = search._autotune_metrics
+        bp.best_perf_so_far = float("inf")
+        bp.mutated_arg_indices = []
+        bp._baseline_output = None
+        bp._baseline_post_args = None
+        bp._effective_atol = 1e-2
+        bp._effective_rtol = 1e-2
+        bp._jobs = 1
         tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(tempdir.cleanup)
-        search._precompile_tmpdir = tempdir
-        search._precompile_args_path = None
-        search._precompile_result_counter = count()
+        bp._precompile_tmpdir = tempdir
+        bp._precompile_args_path = None
+        bp._precompile_result_counter = count()
+        search.benchmark_provider = bp
         search._prepared = True
         return search
 
@@ -139,7 +155,7 @@ class TestAutotuneIgnoreErrors(TestCase):
         with patch("torch.accelerator.synchronize", autospec=True) as sync:
             sync.return_value = None
             with pytest.raises(exc.TritonError) as err:
-                search.benchmark_function("cfg", bad_fn)
+                search.benchmark_provider.benchmark_function("cfg", bad_fn)
 
         assert "HELION_AUTOTUNE_IGNORE_ERRORS" in str(err.value)
 
@@ -155,7 +171,7 @@ class TestAutotuneIgnoreErrors(TestCase):
 
         with patch("torch.accelerator.synchronize", autospec=True) as sync:
             sync.return_value = None
-            result = search.benchmark_function("cfg", bad_fn)
+            result = search.benchmark_provider.benchmark_function("cfg", bad_fn)
 
         self.assertEqual(result, float("inf"))
         self.assertEqual(search._autotune_metrics.num_compile_failures, 1)
@@ -173,7 +189,7 @@ class TestAutotuneIgnoreErrors(TestCase):
         with patch("torch.accelerator.synchronize", autospec=True) as sync:
             sync.return_value = None
             with patch.object(search.log, "warning") as warn:
-                result = search.benchmark_function("cfg", bad_fn)
+                result = search.benchmark_provider.benchmark_function("cfg", bad_fn)
 
         self.assertEqual(result, float("inf"))
         warn.assert_not_called()
@@ -192,13 +208,13 @@ class TestAutotuneIgnoreErrors(TestCase):
         with (
             patch("torch.accelerator.synchronize", autospec=True) as sync,
             patch(
-                "helion.autotuner.base_search.classify_triton_exception",
+                "helion.autotuner.benchmark_provider.classify_triton_exception",
                 return_value="raise",
             ),
         ):
             sync.return_value = None
             with pytest.raises(exc.TritonError) as err:
-                search.benchmark_function("cfg", bad_fn)
+                search.benchmark_provider.benchmark_function("cfg", bad_fn)
 
         # Verify the traceback was cleared
         assert err.value.__cause__.__traceback__ is None
@@ -221,13 +237,13 @@ class TestAutotuneIgnoreErrors(TestCase):
         with (
             patch("torch.accelerator.synchronize", autospec=True) as sync,
             patch(
-                "helion.autotuner.base_search.classify_triton_exception",
+                "helion.autotuner.benchmark_provider.classify_triton_exception",
                 return_value="raise",
             ),
         ):
             sync.return_value = None
             with pytest.raises(exc.TritonError) as err:
-                search.benchmark_function("cfg", bad_fn)
+                search.benchmark_provider.benchmark_function("cfg", bad_fn)
 
         # Verify the traceback was cleared
         assert err.value.__cause__.__traceback__ is None
@@ -292,15 +308,12 @@ class TestAutotuneIgnoreErrors(TestCase):
             calls.append(list(indices))
             members: list[PopulationMember] = []
             for idx in indices:
-                members.append(
-                    PopulationMember(
-                        lambda *args, **kwargs: None,
-                        [float(idx)],
-                        [],
-                        SimpleNamespace(config={"idx": idx}),
-                        status="ok",
-                    )
+                m = PopulationMember(
+                    [],
+                    SimpleNamespace(config={"idx": idx}),
+                    perfs=[float(idx)],
                 )
+                members.append(m)
             return members
 
         search._benchmark_mutation_batch = batch  # type: ignore[assignment]
@@ -316,15 +329,12 @@ class TestAutotuneIgnoreErrors(TestCase):
         def batch(indices: Sequence[int]) -> list[PopulationMember]:
             members: list[PopulationMember] = []
             for idx in indices:
-                members.append(
-                    PopulationMember(
-                        lambda *args, **kwargs: None,
-                        [float(idx)],
-                        [],
-                        SimpleNamespace(config={"idx": idx}),
-                        status="ok",
-                    )
+                m = PopulationMember(
+                    [],
+                    SimpleNamespace(config={"idx": idx}),
+                    perfs=[float(idx)],
                 )
+                members.append(m)
             return members
 
         calls: list[list[int]] = []
@@ -378,7 +388,9 @@ class TestAutotuneIgnoreErrors(TestCase):
             ),
             patch("torch.cuda._lazy_init", side_effect=fake_lazy_init),
         ):
-            future = search.create_precompile_future("cfg", fake_compiled_fn)
+            future = search.benchmark_provider.create_precompile_future(
+                "cfg", fake_compiled_fn
+            )
             self.assertTrue(future())
 
         self.assertEqual(set(lazy_calls), {parent_pid})
@@ -992,11 +1004,13 @@ class TestAutotuner(RefEagerTestDisabled, TestCase):
                 search._prepare()
                 if mode == "fork":
                     start_cm = patch.object(
-                        search,
+                        search.benchmark_provider,
                         "create_precompile_future",
                         side_effect=lambda config, fn: (
                             base_search_module.PrecompileFuture.skip(
-                                search, config, True
+                                search.benchmark_provider._precompile_context(),
+                                config,
+                                True,
                             )
                         ),
                     )
@@ -1012,12 +1026,12 @@ class TestAutotuner(RefEagerTestDisabled, TestCase):
                             search.autotune()
                         return
 
-                    bad_time = search.benchmark(bad_config).perf
+                    bad_time = search.benchmark_provider.benchmark(bad_config).perf
                     assert math.isinf(bad_time)
                     self.assertEqual(search._autotune_metrics.num_accuracy_failures, 1)
                     search._autotune_metrics.num_accuracy_failures = 0
 
-                    good_time = search.benchmark(good_config).perf
+                    good_time = search.benchmark_provider.benchmark(good_config).perf
                     assert not math.isinf(good_time)
                     self.assertEqual(search._autotune_metrics.num_accuracy_failures, 0)
                     search._autotune_metrics.num_accuracy_failures = 0
@@ -1074,11 +1088,13 @@ class TestAutotuner(RefEagerTestDisabled, TestCase):
                 search._prepare()
                 if mode == "fork":
                     start_cm = patch.object(
-                        search,
+                        search.benchmark_provider,
                         "create_precompile_future",
                         side_effect=lambda config, fn: (
                             base_search_module.PrecompileFuture.skip(
-                                search, config, True
+                                search.benchmark_provider._precompile_context(),
+                                config,
+                                True,
                             )
                         ),
                     )
@@ -1094,12 +1110,12 @@ class TestAutotuner(RefEagerTestDisabled, TestCase):
                             search.autotune()
                         return
 
-                    bad_time = search.benchmark(bad_config).perf
+                    bad_time = search.benchmark_provider.benchmark(bad_config).perf
                     assert math.isinf(bad_time)
                     self.assertEqual(search._autotune_metrics.num_accuracy_failures, 1)
                     search._autotune_metrics.num_accuracy_failures = 0
 
-                    good_time = search.benchmark(good_config).perf
+                    good_time = search.benchmark_provider.benchmark(good_config).perf
                     assert not math.isinf(good_time)
                     self.assertEqual(search._autotune_metrics.num_accuracy_failures, 0)
                     search._autotune_metrics.num_accuracy_failures = 0
@@ -1200,20 +1216,20 @@ class TestAutotuner(RefEagerTestDisabled, TestCase):
             )
             search._prepare()
             with patch.object(
-                search,
+                search.benchmark_provider,
                 "create_precompile_future",
                 side_effect=lambda config, fn: base_search_module.PrecompileFuture.skip(
-                    search, config, True
+                    search.benchmark_provider._precompile_context(), config, True
                 ),
             ):
                 # Bad config should be filtered out by accuracy check
-                bad_time = search.benchmark(bad_config).perf
+                bad_time = search.benchmark_provider.benchmark(bad_config).perf
                 self.assertTrue(math.isinf(bad_time))
                 self.assertEqual(search._autotune_metrics.num_accuracy_failures, 1)
 
                 # Good config should pass accuracy check
                 search._autotune_metrics.num_accuracy_failures = 0
-                good_time = search.benchmark(good_config).perf
+                good_time = search.benchmark_provider.benchmark(good_config).perf
                 self.assertFalse(math.isinf(good_time))
                 self.assertEqual(search._autotune_metrics.num_accuracy_failures, 0)
 
@@ -1313,14 +1329,14 @@ class TestAutotuner(RefEagerTestDisabled, TestCase):
 
         # Verify that effective tolerances were set to 0.0 automatically
         self.assertEqual(
-            search._effective_atol,
+            search.benchmark_provider._effective_atol,
             0.0,
-            f"Expected automatic atol=0.0 for fp8, got {search._effective_atol}",
+            f"Expected automatic atol=0.0 for fp8, got {search.benchmark_provider._effective_atol}",
         )
         self.assertEqual(
-            search._effective_rtol,
+            search.benchmark_provider._effective_rtol,
             0.0,
-            f"Expected automatic rtol=0.0 for fp8, got {search._effective_rtol}",
+            f"Expected automatic rtol=0.0 for fp8, got {search.benchmark_provider._effective_rtol}",
         )
 
         # Should successfully autotune without error
@@ -1352,8 +1368,8 @@ class TestAutotuner(RefEagerTestDisabled, TestCase):
         search._prepare()
 
         # Should respect user's explicit tolerances, not override to 0.0
-        self.assertEqual(search._effective_atol, 1e-5)
-        self.assertEqual(search._effective_rtol, 1e-5)
+        self.assertEqual(search.benchmark_provider._effective_atol, 1e-5)
+        self.assertEqual(search.benchmark_provider._effective_rtol, 1e-5)
 
     @skipIfCudaCapabilityLessThan((9, 0), reason="FP8 requires CUDA capability >= 9.0")
     def test_autotune_mixed_fp8_and_fp32_output(self) -> None:
@@ -1694,10 +1710,13 @@ class TestAutotuner(RefEagerTestDisabled, TestCase):
         fn2 = bound_kernel.compile_config(config2)
 
         # Create population members (flat_values not used in rebenchmark)
-        member1 = PopulationMember(fn1, [1.0], (), config1)
-        member2 = PopulationMember(fn2, [1.1], (), config2)
+        member1 = PopulationMember((), config1)
+        member1.update(BenchmarkResult(config1, fn1, 1.0, "ok", None))
+        member2 = PopulationMember((), config2)
+        member2.update(BenchmarkResult(config2, fn2, 1.1, "ok", None))
 
-        search.best_perf_so_far = 1.0
+        search._prepare()
+        search.benchmark_provider.best_perf_so_far = 1.0
 
         # Call rebenchmark directly
         search.rebenchmark([member1, member2])
@@ -1811,7 +1830,7 @@ class TestAutotuner(RefEagerTestDisabled, TestCase):
 
     def test_chunked_allclose_memory(self):
         """Test that autotuning accuracy checks use chunked comparison for large tensors."""
-        import helion.autotuner.base_search as _bs
+        import helion.autotuner.benchmark_provider as _bs
 
         numel = 2**26  # 64M float32 elements (~256 MB each)
 
@@ -1928,21 +1947,21 @@ class TestAutotuner(RefEagerTestDisabled, TestCase):
             search._prepare()
 
             with patch.object(
-                search,
+                search.benchmark_provider,
                 "create_precompile_future",
                 side_effect=lambda config, fn: base_search_module.PrecompileFuture.skip(
-                    search, config, True
+                    search.benchmark_provider._precompile_context(), config, True
                 ),
             ):
                 # bad_config has a few large diffs — custom check should accept it
-                bad_time = search.benchmark(bad_config).perf
+                bad_time = search.benchmark_provider.benchmark(bad_config).perf
                 assert not math.isinf(bad_time), (
                     "custom check should allow config with 1/N large diffs"
                 )
                 self.assertEqual(search._autotune_metrics.num_accuracy_failures, 0)
 
                 # good_config produces exact match — should also pass
-                good_time = search.benchmark(good_config).perf
+                good_time = search.benchmark_provider.benchmark(good_config).perf
                 assert not math.isinf(good_time)
                 self.assertEqual(search._autotune_metrics.num_accuracy_failures, 0)
 

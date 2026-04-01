@@ -77,18 +77,15 @@ class TestErrors(RefEagerTestDisabled, TestCase):
                 cfg = self.config_gen.unflatten(flat_values)
                 members.append(
                     PopulationMember(
-                        lambda *args: None,
-                        [float("inf")],
                         flat_values,
                         cfg,
+                        perfs=[float("inf")],
                     )
                 )
             return members
 
         with (
-            mock.patch.object(
-                PopulationBasedSearch, "parallel_benchmark_flat", fake_parallel
-            ),
+            mock.patch.object(PopulationBasedSearch, "benchmark_flat", fake_parallel),
             self.assertRaises(helion.exc.NoConfigFound),
         ):
             search.autotune()

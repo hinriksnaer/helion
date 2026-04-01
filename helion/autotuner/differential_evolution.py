@@ -150,7 +150,7 @@ class DifferentialEvolutionSearch(PopulationBasedSearch):
         # The initial population is 2x larger so we can throw out the slowest half and give the tuning process a head start
         initial_population_name = self.initial_population_strategy.name
         oversized_population = sorted(
-            self.parallel_benchmark_flat(
+            self.benchmark_flat(
                 self._generate_initial_population_flat(),
             ),
             key=performance,
@@ -167,7 +167,7 @@ class DifferentialEvolutionSearch(PopulationBasedSearch):
         if not indices:
             return []
         flat_configs = [self.mutate(i) for i in indices]
-        return self.parallel_benchmark_flat(flat_configs)
+        return self.benchmark_flat(flat_configs)
 
     def iter_candidates(self) -> Iterator[tuple[int, PopulationMember]]:
         if self.immediate_update:
@@ -253,11 +253,9 @@ class DifferentialEvolutionSearch(PopulationBasedSearch):
 
         self.initial_two_generations()
 
-        # Compute adaptive compile timeout based on initial population compile times
-        self.set_adaptive_compile_timeout(
-            self.population,
-            min_seconds=self.compile_timeout_lower_bound,
-            quantile=self.compile_timeout_quantile,
+        # Allow the benchmark provider to optimize based on initial results
+        self.benchmark_provider.post_initial_benchmark(
+            [m.result for m in self.population]
         )
 
         # Initialize early stopping tracking
@@ -275,7 +273,7 @@ class DifferentialEvolutionSearch(PopulationBasedSearch):
             if early_stopping_enabled and self.check_early_stopping():
                 break
 
-        self.rebenchmark_population()
+        self.verify_members()
 
         # Run finishing phase to simplify the best configuration
         self.best = self.run_finishing_phase(self.best, self.finishing_rounds)

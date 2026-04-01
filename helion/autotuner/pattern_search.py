@@ -140,17 +140,15 @@ class PatternSearch(PopulationBasedSearch):
             if member.config not in visited:
                 visited.add(member.config)
                 self.population.append(member)
-        self.parallel_benchmark_population(self.population, desc="Initial population")
+        self._benchmark_members(self.population, desc="Initial population")
 
-        # Compute adaptive compile timeout based on initial population compile times
-        self.set_adaptive_compile_timeout(
-            self.population,
-            min_seconds=self.compile_timeout_lower_bound,
-            quantile=self.compile_timeout_quantile,
+        # Allow the benchmark provider to optimize based on initial results
+        self.benchmark_provider.post_initial_benchmark(
+            [m.result for m in self.population]
         )
 
         # again with higher accuracy
-        self.rebenchmark_population(self.population, desc="Verifying initial results")
+        self.verify_members(self.population, desc="Verifying initial results")
         self.population.sort(key=performance)
         starting_points = []
         for member in self.population[: self.copies]:
@@ -190,11 +188,9 @@ class PatternSearch(PopulationBasedSearch):
             unbenchmarked = [m for m in self.population if len(m.perfs) == 0]
             if unbenchmarked:
                 self.set_generation(generation)
-                self.parallel_benchmark_population(
-                    unbenchmarked, desc=f"Generation {generation}:"
-                )
+                self._benchmark_members(unbenchmarked, desc=f"Generation {generation}:")
             # higher-accuracy rebenchmark
-            self.rebenchmark_population(
+            self.verify_members(
                 self.population, desc=f"Generation {generation}: verifying top configs"
             )
             # Log final statistics for this generation

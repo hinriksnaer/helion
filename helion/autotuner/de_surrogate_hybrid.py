@@ -158,11 +158,9 @@ class DESurrogateHybrid(DifferentialEvolutionSearch):
         # Initialize population
         self.initial_two_generations()
 
-        # Compute adaptive compile timeout based on initial population compile times
-        self.set_adaptive_compile_timeout(
-            self.population,
-            min_seconds=self.compile_timeout_lower_bound,
-            quantile=self.compile_timeout_quantile,
+        # Allow the benchmark provider to optimize based on initial results
+        self.benchmark_provider.post_initial_benchmark(
+            [m.result for m in self.population]
         )
 
         # Track initial observations for surrogate
@@ -183,7 +181,7 @@ class DESurrogateHybrid(DifferentialEvolutionSearch):
             if self.check_early_stopping():
                 break
 
-        self.rebenchmark_population()
+        self.verify_members()
 
         best = self.best
         self.log("=" * 70)
@@ -215,7 +213,7 @@ class DESurrogateHybrid(DifferentialEvolutionSearch):
             selected_candidates = self._generate_de_candidates(self.population_size)
 
         # Evaluate selected candidates
-        new_members = self.parallel_benchmark_flat(selected_candidates)
+        new_members = self.benchmark_flat(selected_candidates)
 
         # Track observations
         for member in new_members:

@@ -33,7 +33,7 @@ from ._dist_utils import is_master_rank
 from ._utils import counters
 from .autotuner.benchmarking import sync_object as sync_object
 from .runtime.settings import _get_backend
-from helion.autotuner.base_search import _clone_args
+from helion.autotuner.benchmark_provider import _clone_args
 
 if _get_backend() == "pallas":
     from .autotuner.benchmarking import compute_repeat_generic as compute_repeat
