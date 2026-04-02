@@ -756,11 +756,9 @@ class AOTAutotuneCache(AutotuneCacheBase):
         old_precompile = self.autotuner.settings.autotune_precompile
         self.autotuner.settings.autotune_precompile = None
 
-        # Set up tmpdir if needed (normally done inside autotune())
+        # Set up provider resources if needed (normally done inside autotune())
         benchmark_provider = self.autotuner.benchmark_provider
-        tmpdir_created = benchmark_provider._precompile_tmpdir is None
-        if tmpdir_created:
-            benchmark_provider.setup()
+        benchmark_provider.setup()
 
         try:
             for i, config in enumerate(all_configs):
@@ -804,8 +802,7 @@ class AOTAutotuneCache(AutotuneCacheBase):
         finally:
             # Restore settings
             self.autotuner.settings.autotune_precompile = old_precompile
-            if tmpdir_created:
-                benchmark_provider.cleanup()
+            benchmark_provider.cleanup()
 
         print(
             f"[AOT measure] Completed: {len(results)}/{len(all_configs)} configs succeeded",
