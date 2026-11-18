@@ -35,13 +35,16 @@ from agentic.workflows.improve.state import PREFIX
 from agentic.workflows.improve.state import ImproveSettings
 from agentic.workflows.improve.state import Round
 from agentic.workflows.improve.state import Summary
+from agentic.workflows.improve.state import Workers
 from agentic.workflows.improve.state import slug
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from agentic.core.config import Config
     from agentic.core.config import ProviderConfig
+    from agentic.core.step import Outcome
     from agentic.core.step import Worker
     from agentic.core.turn import TurnResult
     from agentic.workflows.improve.state import ImproveOptions
@@ -252,9 +255,7 @@ class TestAStackIsReviewedCommitByCommit:
             run_git("commit", "-q", "-am", name)
         return repo, base
 
-    def _workers(self) -> Any:
-        from agentic.workflows.improve.state import Workers
-
+    def _workers(self) -> Workers:
         # The review workers are only built when absent; a sentinel is enough
         # because `review_range` is replaced below.
         return Workers(
@@ -274,7 +275,9 @@ class TestAStackIsReviewedCommitByCommit:
         repo, base = self._stack_repo(tmp_path)
         calls: list[tuple[str, str]] = []
 
-        async def fake_review_range(*args: object, **kwargs: object) -> Any:
+        async def fake_review_range(
+            *args: object, **kwargs: object
+        ) -> tuple[list[object], Outcome[Any]]:
             calls.append((str(kwargs["base"]), str(kwargs["head"])))
             return [], _outcome(Verdict(blocking=False, text="clean"))
 
@@ -303,7 +306,9 @@ class TestAStackIsReviewedCommitByCommit:
         repo, base = self._stack_repo(tmp_path)
         calls: list[str] = []
 
-        async def fake_review_range(*args: object, **kwargs: object) -> Any:
+        async def fake_review_range(
+            *args: object, **kwargs: object
+        ) -> tuple[list[object], Outcome[Any]]:
             calls.append(str(kwargs["head"]))
             return [], _outcome(Verdict(blocking=False, text="clean"))
 
@@ -345,7 +350,9 @@ class TestAStackIsReviewedCommitByCommit:
             ]
         )
 
-        async def fake_review_range(*args: object, **kwargs: object) -> Any:
+        async def fake_review_range(
+            *args: object, **kwargs: object
+        ) -> tuple[list[object], Outcome[Any]]:
             return [], _outcome(next(verdicts))
 
         monkeypatch.setattr(
@@ -492,7 +499,7 @@ def _writer(repo: Path, base: str | None = None) -> tuple[Run, Worker[str]]:
     return run, worker
 
 
-def _git_runner(repo: Path) -> Any:
+def _git_runner(repo: Path) -> Callable[..., None]:
     import subprocess
 
     def run(*args: str) -> None:
@@ -503,10 +510,10 @@ def _git_runner(repo: Path) -> Any:
     return run
 
 
-def _outcome(result: Any) -> Any:
-    from agentic.core.step import Outcome
+def _outcome(result: object) -> Outcome[object]:
+    from agentic.core.step import Outcome as Value
 
-    return Outcome(name="t", model="p/m", result=result, elapsed_seconds=0.1)
+    return Value(name="t", model="p/m", result=result, elapsed_seconds=0.1)
 
 
 def _turn(

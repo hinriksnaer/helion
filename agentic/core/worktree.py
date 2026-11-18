@@ -275,7 +275,7 @@ def _remove(common: Path, path: Path) -> None:
     Not through the worktree it was made from: the source may already be gone by
     the time the run ends.
     """
-    _reap(path)
+    reap_jobs(path)
     try:
         git.git(
             "--git-dir", str(common), "worktree", "remove", "--force", str(path),
@@ -295,8 +295,16 @@ def _remove(common: Path, path: Path) -> None:
 _JOBS = Path(".pydantic-ai-harness") / "shell"
 
 
-def _reap(path: Path) -> None:
-    """Stop the shell jobs left running inside the workspace being removed."""
+def reap_jobs(path: Path) -> None:
+    """Stop the shell jobs still running inside ``path``.
+
+    A command runs detached from the run by design, so the one place that knows a
+    job exists must be the place that ends it: the workspace teardown calls this
+    when the tree is removed, and a *reader's* turn calls it when that turn ends.
+    A reader has no work that outlives its turn -- every reader turn starts from
+    its own checkout of the same tree -- and a script that outlived its call cost
+    one scan 271 s of a core, so there it is reaped early rather than later.
+    """
     base = path / _JOBS
     if not base.is_dir():
         return

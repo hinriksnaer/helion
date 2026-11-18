@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from agentic.core import git
 from agentic.core import worktree
 from agentic.core.config import Config
 from agentic.core.config import ModelRef
@@ -199,6 +200,69 @@ class TestTurnInASnapshot:
         for path in (outcome.outcome_path, outcome.messages_path, outcome.steps_path):
             assert path is not None and path.is_file()
 
+    def test_a_reader_turn_reaps_the_jobs_it_leaves_behind(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A reader has nothing that should outlive its turn.
+
+        A shell job that outlived its call kept a core busy for 271 s of one
+        scan; a reader's tree is rebuilt from the same checkout every turn, so
+        nothing done in it is worth keeping alive.
+        """
+        from agentic.core import worktree as worktree_mod
+
+        reaped: list[str] = []
+        monkeypatch.setattr(
+            worktree_mod, "reap_jobs", lambda path: reaped.append(str(path))
+        )
+        repo = _repo(tmp_path)
+        run = _open_run(repo)
+        with run.workspaces:
+            worker, task = self._worker_and_task(run, repo)
+            self._fake_turn(monkeypatch)
+            asyncio.run(run.turn(worker, task))
+            # Reaped when the turn ended, not when the workspace closed.
+            assert reaped == [str(run.workspace_for(worker, task).path)]
+        assert len(reaped) == 2  # and again by the teardown
+
+    def test_a_writer_turn_keeps_its_jobs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Its tree holds the work: a build it backgrounded must survive the turn.
+        from agentic.core import worktree as worktree_mod
+        from agentic.core.step import Task
+        from agentic.core.step import Worker
+        from agentic.workflows.improve import pipeline as pipeline_mod
+        from agentic.workflows.improve.state import PREFIX
+
+        reaped: list[str] = []
+        monkeypatch.setattr(
+            worktree_mod, "reap_jobs", lambda path: reaped.append(str(path))
+        )
+        repo = _repo(tmp_path)
+        run = _open_run(repo)
+        step = pipeline_mod._step("write", skills_dirs=())
+        writer = Worker(
+            index=0,
+            name="writer",
+            ref=ModelRef(provider="p", model="m"),
+            step=step,
+            definition=step.definition(),
+            model=None,  # type: ignore[arg-type]  # the turn is replaced
+            digest="def",
+        )
+        task = Task(
+            name="write",
+            prompt="make it",
+            inputs={},
+            branch=f"{PREFIX}keeps-jobs",
+            base=git.head_sha(cwd=repo),
+        )
+        self._fake_turn(monkeypatch)
+        with run.workspaces:
+            asyncio.run(run.turn(writer, task))
+            assert reaped == [], "a writer's backgrounded job must survive its turn"
+
     def test_a_turn_that_changed_its_snapshot_gets_no_verdict(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -360,7 +424,7 @@ class TestLeftoverShellJobs:
             # The harness's handle file: `<supervisor pid> <group or ->`.
             (directory / "handle").write_text(f"{job.pid} {job.pid}\n")
 
-            worktree._reap(tmp_path)
+            worktree.reap_jobs(tmp_path)
 
             job.wait(timeout=10)
             assert job.returncode is not None
@@ -370,9 +434,9 @@ class TestLeftoverShellJobs:
                 pytest.fail("the job was still running after the workspace went")
 
     def test_a_workspace_without_jobs_is_untouched(self, tmp_path: Path) -> None:
-        worktree._reap(tmp_path)  # no `.pydantic-ai-harness` at all
+        worktree.reap_jobs(tmp_path)  # no `.pydantic-ai-harness` at all
         (tmp_path / "file.txt").write_text("keep me\n")
-        worktree._reap(tmp_path)
+        worktree.reap_jobs(tmp_path)
         assert (tmp_path / "file.txt").read_text() == "keep me\n"
 
 

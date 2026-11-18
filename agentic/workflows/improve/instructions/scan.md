@@ -53,8 +53,10 @@ You have a shell and the whole tree. Use them for feasibility, not proof:
 
 - `rg` and `git` answer most questions in a fraction of a second. Reach for a
   script only when a pattern cannot, keep it to one short call, and give the
-  call a bound: the shell tool takes `timeout=` (seconds, at most 270) and
-  refuses more. Do not wrap a command in shell `timeout`.
+  call a bound. The shell tool's own `timeout=` (seconds, at most 270) is the
+  better bound: it hands back a job handle and a status file you can poll. A
+  shell `timeout 200 ...` is second best and still fine -- `timeout 120 rg ...`
+  beats an unbounded call every time.
 - **The expensive shape is a script that walks the tree** -- an AST pass over the
   1,141 test modules, a `get_source_segment` per node, a compile of everything.
   It is quadratic in practice (it cost one run four and a half minutes) and it
@@ -80,6 +82,13 @@ own context and the same tools, up to three levels deep, and its calls are
 recorded as part of this run. Give each delegate one family of candidates and a
 task that needs no follow-up, and keep your own calls for what you judge
 yourself.
+
+**A family is a list of paths, not a theme.** "The test suite" invites a walk
+over 1,141 modules and an AST script that runs for minutes; "`helion/_testing/**`
+and `test/conftest.py`" does not -- the delegate reads eight files and thinks. If
+you cannot name the paths, the family is too broad: narrow it, or keep it
+yourself. Two or three delegates with listed paths beat six with themes, and the
+path list is what stops two of them paying for the same files.
 
 ## What counts
 

@@ -558,6 +558,10 @@ class Run:
                 "cannot be attributed to the tree it was given"
             )
             await asyncio.to_thread(workspace.rebuild)
+        if not workspace.writable:
+            # A reader has nothing that should outlive its turn, and a shell job
+            # that outlived its call burns a core until the workspace closes.
+            await asyncio.to_thread(worktree_mod.reap_jobs, workspace.path)
         return outcome
 
     async def fan_out(
