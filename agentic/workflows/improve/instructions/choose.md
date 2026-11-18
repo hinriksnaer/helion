@@ -13,6 +13,13 @@ You have a shell and the tree. For the candidates that look plausible:
   a grep for the other callers;
 - check that the change would not need a public behaviour change to work.
 
+**The unit of verification is one test node, not a module.** `pytest
+test/test_x.py::test_y -q` answers "is my claim true"; `pytest test/test_x.py`
+answers "is this file healthy", costs a minute per collection it does not need,
+and tells you nothing extra about the candidate. Run a whole module only when the
+claim *is* about the module (a missing `pytestmark`, an import-time side effect),
+and then say which module and why.
+
 Two or three candidates checked properly beat ten skimmed. You do not have to
 assess all of them; you have to choose well and say why.
 
@@ -38,6 +45,11 @@ narrower than the scan's -- it covers checking candidates, not making the choice
   takes five to ten minutes, the same as checking one yourself, so delegation
   pays when there are candidates left over after your own reading, not instead
   of it.
+- **A candidate whose check is "run these N" is the one to delegate.** Seven
+  modules to mark `cpu_only`, eight fixtures to compare, five files to grep for
+  the same shape: that is parallel work whether or not the candidates are, so
+  split the N across one or two delegates and keep the judgement. Checking them
+  serially is how a choice spends twenty minutes on a candidate it then discards.
 
 Say in your answer which candidates you verified yourself and which a delegate
 brought back, so the plan and the reviewers know how much of a claim is second
