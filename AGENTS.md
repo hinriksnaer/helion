@@ -22,6 +22,10 @@ lives here; step-by-step procedures live in the skills under `.agents/skills/`.
   in the tree. Both accept paths.
 - Run tests: `pytest <filename>`; a subset: `pytest <filename> -k name_substring`.
   The lanes CI runs, sharded across GPUs: `scripts/run_tests.py` (see Testing).
+- The `agentic/` tool has its own suite, which no CI job and no lane collects:
+  `CUDA_VISIBLE_DEVICES="" python -m pytest agentic/tests` from the checkout
+  root, in an environment with the `agentic` extra (Python 3.11+). Change it with
+  a change to `agentic/`, because nothing else will notice.
 - Run `scripts/run_tests.py`, `scripts/shard_durations.py` and
   `scripts/autoreview.py` with Helion's environment Python: activate it or
   use its absolute path. Worktrees have no `.venv` of their own. The scripts'
@@ -331,7 +335,8 @@ the pull request description.
 
 - Title: `[area] Imperative summary`, at most about 80 characters. Areas in
   use: `cutedsl`, `autotuner`, `compiler`, `runtime`, `language`, `examples`,
-  `testing`, `ci`, `scripts`, `metal`, `pallas`, `triton`, `autodiff`, `benchmarks`, `docs`.
+  `testing`, `ci`, `scripts`, `metal`, `pallas`, `triton`, `autodiff`, `agents`,
+  `benchmarks`, `docs`.
 - Body: why, then what changed (bullets when there are several things), then a
   `Testing:` paragraph naming the lanes or commands run, the GPUs, the pass and
   fail counts, and anything you could not run. Flag compatibility-relevant

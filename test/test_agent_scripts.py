@@ -31,6 +31,13 @@ pytestmark = pytest.mark.cpu_only
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO_ROOT / "scripts"
 
+# `_load` execs a script as a top-level module, so a script that imports a
+# sibling by name -- `scripts/autoreview.py` does `from review_checklist import
+# ...` -- needs `scripts/` importable. Without this, loading autoreview here
+# fails with ModuleNotFoundError while the same script runs fine from a shell.
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
 
 def _load(name: str) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")
@@ -131,7 +138,7 @@ def claim_file(root: Path, owner: str, gpus: list[int], expires: float, **fields
     return write_as(owner, root / "claims" / name, json.dumps(data))
 
 
-def expect_alert(match: str) -> pytest.RaisesContext:
+def expect_alert(match: str) -> pytest.RaisesExc[gpu_board.SecurityAlert]:
     return pytest.raises(gpu_board.SecurityAlert, match=match)
 
 

@@ -1,0 +1,108 @@
+# Copy to agentic/config.local.toml and edit. That file is gitignored.
+#
+# This file holds no secrets and no vendor-specific endpoint. A provider is the
+# standard one -- OpenAI, Anthropic, Google -- or `openai_compatible` for any
+# /v1/chat/completions endpoint. Credentials come from the provider SDK's usual
+# environment variable; never put a key here.
+#
+# TOML scoping: every bare key must come before the first `[table]` header, or it
+# silently becomes a key of that table. Settings therefore live at the top.
+
+# The role a workflow uses when its [workflows.<name>] table names no agents.
+default_role = "high"
+
+# How hard the models think, in the spelling pydantic-ai's unified `thinking`
+# setting takes: true/false, or one of minimal, low, medium, high, xhigh, max.
+# Unset leaves each provider's own default -- which is what every run did before
+# this setting existed, and what a model that takes no thinking parameter keeps.
+# A role's own table can override it. It takes part in a record's key: the same
+# question asked at `low` and at `high` is two answers, not one.
+# thinking = "high"
+
+# Skill libraries offered to an agent. These already exist in the repository.
+skills_dirs = [".agents/skills"]
+
+# Wall-clock budget per agent turn (one reviewer on one commit, one lens).
+timeout_seconds = 1800.0
+
+# Ceiling on tokens for one unit; unset means the provider's own limit.
+# max_total_tokens = 2000000
+
+
+# --- a standard provider ----------------------------------------------------
+# `openai` reads OPENAI_API_KEY and honours OPENAI_BASE_URL, so pointing this at
+# an OpenAI-compatible gateway is an environment change, not a config change.
+[providers.openai]
+kind = "openai"
+
+# Or the vendor APIs, keyed by their own environment variables:
+# [providers.anthropic]
+# kind = "anthropic"          # needs ANTHROPIC_API_KEY
+#
+# [providers.google]
+# kind = "google"             # needs GOOGLE_API_KEY
+
+# --- or a named endpoint with its own variable ------------------------------
+# Use this only when a gateway needs a key in a variable that is not the SDK's.
+# [providers.gateway]
+# kind = "openai_compatible"
+# base_url = "https://gateway.invalid/v1"
+# key_env = "GATEWAY_API_KEY"
+#
+# Or let a command print the key (a password manager, `pass`, `rbw`): set one of
+# `key_env` and `key_cmd`, never both. The command is run when the key is needed,
+# so the secret is in neither this file nor your shell history; `--dry-run`
+# names it without running it.
+# [providers.secret_store]
+# kind = "openai_compatible"
+# base_url = "https://gateway.invalid/v1"
+# key_cmd = "rbw get gateway-key"
+
+# --- or no network at all ---------------------------------------------------
+# `test` builds pydantic-ai's TestModel: the whole pipeline (composition,
+# contract, artifacts, logs, gate) runs with no credentials. Useful for checking
+# a config change before spending tokens.
+# [providers.fake]
+# kind = "test"
+
+
+# --- capability roles -------------------------------------------------------
+# A role is "provider/model". Only the first "/" splits it, so a model id keeps
+# its own slashes. Shared definitions ask for a role, never a model.
+[roles]
+high = "openai/your-most-capable-model"
+cheap = "openai/your-fast-model"
+# A role as a table, when one model wants a different effort than the rest:
+# the string form above always means the top-level `thinking`.
+# mid = { model = "openai/your-mid-model", thinking = "low" }
+
+
+# --- workflows --------------------------------------------------------------
+# One table per workflow, validated by that workflow (unknown keys are errors).
+# `agents` names roles (above) or "provider/model" strings; `timeout_seconds`
+# and `max_total_tokens` override the top-level values.
+
+[workflows.review]
+# Two independent reviewers. Independent answers are the substance of a review;
+# one model agreeing with itself is not.
+agents = ["high", "cheap"]
+# How much of a diff goes into the prompt. Past this the agent is told to read
+# files itself, and the run record says the diff was truncated.
+max_diff_chars = 120000
+
+[workflows.improve]
+# One candidate in, one reviewed branch out: scan proposes, choose investigates
+# and picks, plan scopes, writer builds, the review workflow judges.
+#
+# `choose` must not resolve to the same model as `scan`: the second step exists
+# to disagree with the first. The run refuses to start when they agree
+# (`independent_choice = false` turns that off for a single-model rehearsal).
+scan = "mid"
+choose = "high"
+plan = "high"
+writer = "high"
+# Empty means the review workflow's own `[workflows.review] agents`.
+reviewers = []
+# A safety valve, not a policy: the reviewers end the loop by finding no
+# blockers, and a round that adds no commit ends it too.
+max_rounds = 3

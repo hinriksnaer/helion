@@ -38,6 +38,36 @@ dev = [
     # torch.fx takes tqdm's lock; test_autotuner_render_pool covers it
     "tqdm",
 ]
+# `agentic/` is an experimental home for agent pipelines. It gets its own extra
+# because nothing under helion/ or test/ imports it: putting these in `dev` would
+# pull the openai, anthropic and google SDKs and the harness's exact
+# `ripgrep==14.1.0` pin into every CI job, benchmark image and devshell that
+# installs `.[dev]`.
+#
+# The python_version markers keep a 3.10 environment resolvable -- the shipped
+# package still supports 3.10 and only this tool needs 3.11. pydantic-ai-harness
+# is 0.x and is pinned to the minor release the capability stack in
+# agentic/core/stack.py was written against: bump it deliberately,
+# then run `agentic/scripts/autoreview.py --dry-run` (it prints the composed tool
+# set, so a renamed or dropped capability shows up) and `pytest agentic/tests`
+# (which now imports the harness, so a rename fails collection rather than
+# skipping).
+#
+# `repair-tool-arguments` (json-repair) and `skills` (pyyaml) are the extras the
+# composition actually uses. `coder` would add `ripgrep==14.1.0` for the
+# ripgrep-backed `list_files`/`grep` tools, which this composition does not offer.
+#
+# `opentelemetry-sdk` is for the live span tree (`--trace`, `core/trace.py`).
+# pydantic-ai already depends on the *API* and emits the spans; only the SDK and
+# a provider are needed to render them, and it is a smaller pin than
+# `pydantic-ai-slim[logfire]`, which pulls logfire's own SDK for the same spans.
+agentic = [
+    "pydantic>=2",
+    "pydantic-ai-slim[openai,anthropic,google]>=2.68,<3; python_version >= '3.11'",
+    "pydantic-ai-harness[repair-tool-arguments,skills]>=0.68,<0.69; python_version >= '3.11'",
+    "opentelemetry-sdk>=1.30; python_version >= '3.11'",
+    "rich>=13; python_version >= '3.11'",
+]
 # Helion integrates tightly with the cutlass DSL's internal APIs; each
 # upstream release tends to break the cute backend. The pin tracked in
 # .github/ci_commit_pins/nvidia_cutlass_dsl.txt is the single source of

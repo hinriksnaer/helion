@@ -29,14 +29,21 @@ pytestmark = pytest.mark.cpu_only
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "autoreview.py"
 
 
-def _load() -> types.ModuleType:
+def _load_sibling(name: str) -> types.ModuleType:
+    """Load ``scripts/<name>.py`` as the top-level module the script imports."""
     helper = importlib.util.spec_from_file_location(
-        "process_supervisor", SCRIPT.with_name("process_supervisor.py")
+        name, SCRIPT.with_name(f"{name}.py")
     )
     assert helper is not None and helper.loader is not None
-    supervision = importlib.util.module_from_spec(helper)
-    sys.modules["process_supervisor"] = supervision
-    helper.loader.exec_module(supervision)
+    module = importlib.util.module_from_spec(helper)
+    sys.modules[name] = module
+    helper.loader.exec_module(module)
+    return module
+
+
+def _load() -> types.ModuleType:
+    _load_sibling("process_supervisor")
+    _load_sibling("review_checklist")
     spec = importlib.util.spec_from_file_location("autoreview", SCRIPT)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -2214,9 +2221,8 @@ def test_cli_restores_inherited_ignored_sigchld(tmp_path):
     script = tmp_path / "scripts" / "autoreview.py"
     script.parent.mkdir()
     script.write_bytes(SCRIPT.read_bytes())
-    script.with_name("process_supervisor.py").write_bytes(
-        SCRIPT.with_name("process_supervisor.py").read_bytes()
-    )
+    for sibling in ("process_supervisor.py", "review_checklist.py"):
+        script.with_name(sibling).write_bytes(SCRIPT.with_name(sibling).read_bytes())
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     codex = bin_dir / "codex"

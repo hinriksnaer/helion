@@ -68,6 +68,10 @@ from process_supervisor import require_default_sigchld
 from process_supervisor import supervised_command
 from process_supervisor import wait_proc
 
+# Shared with agentic/, so the two review tools cannot drift about what a review
+# looks for.
+from review_checklist import REVIEW_CHECKLIST
+
 if TYPE_CHECKING:
     from collections.abc import Callable
     from collections.abc import Iterator
@@ -131,7 +135,8 @@ Review target:
 {review_target}\
 """
 
-PROMPT_REVIEW_BODY = """\
+PROMPT_REVIEW_BODY = (
+    """\
 You are the reviewer: report findings, and do not edit, commit, rebase or run
 scripts/autoreview.py. The repository's AGENTS.md workflow rules for committing,
 fixing and rebasing are for the author; its coding, compatibility and testing
@@ -164,48 +169,15 @@ that the defect predates the change, in code the change leaves alone, and
 gets a commit of its own (AGENTS.md, "Fix What You Find"); for a suggestion,
 a factually correct reason to keep the code as it is holds.
 
-Check for:
-- Correctness issues, including bugs you notice in the code around the change
-  (say when one predates the change)
-- Feature regressions (such as disabled or weakened tests, or a code path
-  silently lost)
-- Opportunities for simplification or cleanups
-- Places that are hacky or overly narrow
-- Code duplication
-- Backend-specific tests or test files that should use `@onlyBackends([...])`
-- Too broad `try/except:` lines that could hide bugs
-- Overly defensive getattr/hasattr checks that should be base class schema updates
-- Comments that might go stale quickly (e.g. line numbers)
-- Compatibility (AGENTS.md, "Compatibility guardrails"): changes to the
-  user-facing language (`helion.language`, `@helion.kernel` and its arguments,
-  `Settings` fields, `HELION_*` environment variables, public exceptions) that
-  the commit message does not flag; Triton `Config` changes that would stop
-  configs saved by older versions from loading or working (a new option needs
-  a default that keeps the old behavior; a renamed or retired option must
-  still be accepted). Adding config options, and changing those of
-  experimental backends such as CuTe, is fine.
-- Tests against AGENTS.md's "Test Budget Rules": tests that only inspect
-  generated source but do not bind on CPU in a `cpu_only` module; parametrize
-  grids above 8 cases without a reason or `pairwise`; tests that spawn
-  interpreters, run a real autotune search or take over ~20s without
-  `@pytest.mark.slow`; shared test helpers outside `helion/_testing/`; deleted
-  or renamed test modules still listed in `test/shard_durations.json`;
-  changes to generated code that no test covers
-- AGENTS.md coding rules that lint cannot check: `print()` inside kernels,
-  `import helion as hl` (the pattern is `import helion.language as hl`), `del`
-  or `_ =` for unused arguments, needless local imports
-- Commit messages, when reviewing commits (they become pull request
-  descriptions): a `[area] Imperative summary` title; a body that matches the
-  changes (why, what changed, a `Testing:` paragraph whose claims are
-  plausible); compatibility-relevant changes flagged. In a range of commits,
-  also commits that should be squashed (the same code changed twice, tiny
-  commits) or that would not work if landed in order.
-- Other important issues
+"""
+    + REVIEW_CHECKLIST
+    + """\
 
 If you hit a permission error or other system error that makes it hard to conduct the review respond only with "ERROR: <1-line reason>" and stop.
 
 Do *NOT* make any code changes, on success respond only with the review. If there are no issues, respond with only "LGTM".\
 """
+)
 
 PROMPT_COMBINE = """\
 Another agent using a different model produced the following review (between the BEGIN/END markers below). Combine your review (above) with the other agent's review into a single review. De-duplicate any common issues and resolve any disagreements/conflicts using your best judgment:
