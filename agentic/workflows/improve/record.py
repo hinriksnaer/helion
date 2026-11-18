@@ -143,11 +143,7 @@ def dry_run(config: Config, options: ImproveOptions, repo: Path) -> str:
     )
     lines.append(f"max rounds:  {settings.max_rounds} (the reviewers end the loop)")
     lines.append("")
-    step = pipeline_mod._step(
-        "write",
-        skills_dirs=tuple(config.skills_dirs),
-        reusable=False,
-    )
+    step = pipeline_mod._step("write", skills_dirs=tuple(config.skills_dirs))
     definition = step.definition()
     lines += [
         "writer capabilities: " + ", ".join(definition.names),

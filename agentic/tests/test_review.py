@@ -75,14 +75,12 @@ class TestThePrompts:
             name="a",
             model="p/a",
             result="one blocker: x",
-            cached=False,
             elapsed_seconds=0,
         )
         second = review_mod.Outcome(
             name="b",
             model="p/b",
             result="",
-            cached=False,
             elapsed_seconds=0,
             error="the provider fell over",
         )
@@ -114,7 +112,6 @@ class TestTheGate:
                 name="a",
                 model="p/a",
                 result="ok",
-                cached=False,
                 elapsed_seconds=0.0,
                 error="boom" if failed_reviewer else None,
             )

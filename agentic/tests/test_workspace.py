@@ -18,7 +18,6 @@ from typing import Any
 
 import pytest
 
-from agentic.core import artifact as artifact_store
 from agentic.core import worktree
 from agentic.core.config import Config
 from agentic.core.config import ModelRef
@@ -135,7 +134,7 @@ def _open_run(repo: Path) -> Run:
         config=Config(providers={}, roles={}),
         repo=repo,
         log=RunLog.create(repo, command="t"),
-        summary=RunSummary(environment="env"),
+        summary=RunSummary(),
         timeout=60.0,
         usage_limits=None,
     )
@@ -186,7 +185,7 @@ class TestTurnInASnapshot:
 
         monkeypatch.setattr(lifecycle, "run_turn", run_turn)
 
-    def test_a_clean_turn_is_recorded_when_it_ends(
+    def test_a_clean_turn_leaves_its_evidence_when_it_ends(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
 
@@ -197,7 +196,8 @@ class TestTurnInASnapshot:
             self._fake_turn(monkeypatch)
             outcome = asyncio.run(run.turn(worker, task))
         assert not outcome.failed
-        assert artifact_store.load(repo, task.key(worker), schema_version="1")
+        for path in (outcome.outcome_path, outcome.messages_path, outcome.steps_path):
+            assert path is not None and path.is_file()
 
     def test_a_turn_that_changed_its_snapshot_gets_no_verdict(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -216,7 +216,6 @@ class TestTurnInASnapshot:
             assert not workspace.changed()
         assert outcome.failed
         assert "changed its workspace" in str(outcome.error)
-        assert artifact_store.load(repo, task.key(worker), schema_version="1") is None
         # What the agent said is still in the evidence.
         assert outcome.outcome_path is not None and outcome.outcome_path.is_file()
         assert (repo / "a.txt").read_text() == "one\n"

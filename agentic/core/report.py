@@ -117,8 +117,6 @@ def header(summary: RunSummary) -> list[str]:
         "versions: "
         + ", ".join(f"`{k}={v}`" for k, v in sorted(summary.versions.items())),
     ]
-    if summary.environment:
-        lines.append(f"environment: `{summary.environment[:16]}`")
     lines += [
         f"definition {name}: `{digest[:16]}`"
         for name, digest in summary.definitions.items()
@@ -132,12 +130,6 @@ def header(summary: RunSummary) -> list[str]:
 
 def outcome_line(outcome: Outcome[Any]) -> list[str]:
     """One worker's answer for ``index.md``: flags, timing, summary, evidence."""
-    flags = [
-        flag
-        for flag, on in (("cached", outcome.cached), ("stale", outcome.stale))
-        if on
-    ]
-    marker = f" ({', '.join(flags)})" if flags else ""
     timing = outcome.timing or {}
     took = f"{outcome.elapsed_seconds:.0f}s"
     if timing:
@@ -147,7 +139,7 @@ def outcome_line(outcome: Outcome[Any]) -> list[str]:
         )
     lines = [
         (
-            f"- **{outcome.name}**{marker} -- `{outcome.model}`, {took}: "
+            f"- **{outcome.name}** -- `{outcome.model}`, {took}: "
             f"{outcome.result.summary()}"
         )
     ]
@@ -292,18 +284,15 @@ class RunLog:
 
 
 def output_paths(root: Path) -> tuple[Path, ...]:
-    """Where a run writes inside the repository: its logs and its artifacts.
+    """Where a run writes inside the repository: its logs.
 
     A workflow hashes the tree before and after an agent turn to prove the agent
     did not change it, and builds a working-tree diff of the change under review.
     Neither should see the run's own output, and neither should see a *previous*
     run's: ignoring only the current run's directory made every review of an
-    unchanged diff miss the cache, because the last run's log had become an
-    untracked file in the next run's diff.
+    unchanged diff see the last run's log as a new untracked file.
 
-    Lives here rather than in a workflow because both of those are properties of
-    the runtime, not of what a workflow is about.
+    Lives here rather than in a workflow because it is a property of the runtime,
+    not of what a workflow is about.
     """
-    from .artifact import STORE_DIR
-
-    return (root / LOGS_DIR, root / STORE_DIR)
+    return (root / LOGS_DIR,)

@@ -210,9 +210,9 @@ def tree_digest(cwd: Path | None = None, *, ignore: tuple[Path, ...] = ()) -> st
     """
     tracked = _hash(git("diff", *DIFF_FLAGS, "HEAD", cwd=cwd).encode())
     entries = [f"head {head_sha(cwd=cwd)}", f"tracked {tracked}"]
-    # A run writes its own log and its own artifacts inside the repository. Those
-    # are output, not the change under review, so they are excluded by path -- the
-    # log exists before the digest is taken and grows while the run proceeds.
+    # A run writes its own log inside the repository. That is output, not the
+    # change under review, so it is excluded by path -- the log exists before the
+    # digest is taken and grows while the run proceeds.
     ignored = tuple(Path(p).resolve() for p in ignore)
     for path in untracked_files(cwd=cwd):
         full = (cwd or Path()).resolve() / path

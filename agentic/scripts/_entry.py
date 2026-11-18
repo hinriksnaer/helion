@@ -88,21 +88,6 @@ def add_run_arguments(
         help="Wall-clock budget per agent turn. Default: from the config.",
     )
     parser.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="Ignore recorded answers and run every turn again.",
-    )
-    parser.add_argument(
-        "--reuse-stale",
-        action="store_true",
-        help=(
-            "Serve a recorded answer even though the agent changed since it was "
-            "made (its instructions, composition, tool set or environment). Off "
-            "by default: another agent's answer is not this agent's. Use it when "
-            "the input is unchanged and only the agent was edited."
-        ),
-    )
-    parser.add_argument(
         "--trace",
         action="store_true",
         help=(
@@ -122,8 +107,6 @@ def add_run_arguments(
 def run_options(args: argparse.Namespace) -> dict[str, Any]:
     """The ``RunOptions`` fields from flags :func:`add_run_arguments` added."""
     return {
-        "no_cache": args.no_cache,
-        "reuse_stale": args.reuse_stale,
         "timeout": args.timeout,
         "trace": args.trace,
     }

@@ -322,10 +322,7 @@ async def review_change(
         Task(
             name="summarize",
             prompt=summarize_prompt(what, reviews),
-            inputs={
-                "what": what,
-                "reviews": "|".join(r.artifact or "" for r in reviews),
-            },
+            inputs={"what": what},
         ),
     )
     return reviews, verdict
@@ -355,10 +352,7 @@ async def review_branch(
         Task(
             name="summarize",
             prompt=summarize_prompt(what, reviews),
-            inputs={
-                "what": what,
-                "reviews": "|".join(r.artifact or "" for r in reviews),
-            },
+            inputs={"what": what},
             revision="HEAD",
         ),
     )
@@ -461,8 +455,6 @@ def _text(summary: Summary) -> str:
     lines = [summary.what, ""]
     for review in summary.reviews:
         status = "FAILED" if review.failed else "reviewed"
-        if review.cached and not review.failed:
-            status += " (cached)"
         lines += [f"{review.name} ({review.model}): {status}", ""]
     if summary.verdict is not None:
         lines += [summary.verdict.text.strip(), ""]

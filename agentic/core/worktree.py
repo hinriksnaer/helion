@@ -166,7 +166,7 @@ def snapshot(source: Path, *, ignore: tuple[Path, ...] = ()) -> Iterator[Workspa
     """A private copy of ``source`` as it is now, removed on exit.
 
     ``ignore`` names untracked paths that are not part of the tree (a run's own
-    log and record store); they are not copied.
+    log directory); they are not copied.
     """
     parent = Path(tempfile.mkdtemp(prefix="agentic-snapshot-"))
     workspace = Workspace(

@@ -19,9 +19,8 @@ so a change to this directory can never fail CI for a kernel.
 ## What belongs in code, and what belongs in markdown
 
 **Code holds only what a model cannot know:** the tree it works in, the command
-environment (`PYTHONPATH` is the workspace, no GPU), the wall clock it has, the
-artifacts we must not lose, and our own resource hygiene (the jobs our shells
-leave behind). Everything about *how* to do the work — what to look at, how much
+environment (`PYTHONPATH` is the workspace), the wall clock it has, and our own
+resource hygiene (the jobs our shells leave behind). Everything about *how* to do the work — what to look at, how much
 to verify, when to stop, whether to reach for a script — is a policy file a model
 reads.
 
@@ -33,8 +32,9 @@ Therefore:
   anything else moves. The largest accuracy gain so far came from rewriting one
   104-line policy file; no runtime change has matched it.
 - code is added for a fact a prompt cannot carry, and deleted when a run shows it
-  is never read. A 1,197-line span renderer and an unused record cache are the
-  next candidates, not the next features.
+  is never read. The record cache went that way: every run paid for it and every
+  run said `no reusable record`. The 1,197-line span renderer is the next
+  candidate, not the next feature.
 - **the library's documented shape wins.** A design here that duplicates the
   harness — a hand-assembled capability stack, a bespoke retry handler, a policy
   attached beside `Coder` instead of inside it — is a bug. When something has
@@ -188,10 +188,9 @@ by design; the workspace teardown stops the ones it finds.
 agentic/
   core/            the runtime: nothing here knows about a specific workflow
     step.py          Step, Worker, Task, Outcome: what a workflow declares
-    lifecycle.py     Run: the run directory, workspaces, reuse-or-run, fan_out
+    lifecycle.py     Run: the run directory, workspaces, turns, fan_out
     stack.py         the baseline agent: Definition, the digest, the command env
     config.py        role -> provider/model + thinking, [workflows.<name>]
-    artifact.py      records: key = the question, digests = the provenance
     turn.py          one agent turn: answer, cost, timing, transcript; never raises
     report.py        run.json and index.md
     steps.py         what one turn did, tool call by tool call
@@ -223,14 +222,12 @@ kind of answer is dropped when its own baseline wins.
 
 ## Known gaps
 
-- **Reuse has not paid yet**: every run so far has said `no reusable record`,
-  because a policy edit moves the definition digest. The record store is the most
-  intricate part of `core/` and the first thing to demote if a second run cannot
-  serve one.
 - **The claim is a branch, and git has no expiry**: a crashed or refused run keeps
   its candidate claimed until someone deletes the branch.
-- **An agent cannot claim a GPU.** `CUDA_VISIBLE_DEVICES` is forwarded empty on
-  purpose; a run that measures should claim through `scripts/gpu_board.py` first.
+- **An agent claims no GPU for itself.** `CUDA_VISIBLE_DEVICES` is forwarded from
+  whoever started the run (the helion devshell sets it), so an agent inherits the
+  caller's selection; a run that needs a *different* device should claim through
+  `scripts/gpu_board.py` first.
 - **A delegate's conversation is not in the parent transcript**: its calls are in
   the delegating turn's `steps.jsonl` (tagged `sub` and by delegate), its messages
   only reachable through `delegate_task`'s return.

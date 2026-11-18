@@ -601,6 +601,34 @@ class TestFailedTurnUsage:
         assert usage_from_messages([]) is None
 
 
+class TestFailureText:
+    """What the record says about a turn that died, not just its message."""
+
+    def test_the_chain_is_kept_because_it_says_what_dropped(self) -> None:
+        from agentic.core.turn import failure_text
+
+        cut = OSError("peer closed the connection")
+        cut.__cause__ = RuntimeError("Connection error.")
+        assert failure_text(cut) == (
+            "OSError: peer closed the connection <- RuntimeError: Connection error."
+        )
+
+    def test_an_exception_with_no_message_still_names_its_type(self) -> None:
+        from agentic.core.turn import failure_text
+
+        assert failure_text(TimeoutError()) == "TimeoutError"
+
+    def test_a_cycle_does_not_spin(self) -> None:
+        # `__context__` is set by `raise` inside `except`, so a loop is reachable.
+        from agentic.core.turn import failure_text
+
+        first = ValueError("a")
+        second = ValueError("b")
+        first.__context__ = second
+        second.__context__ = first
+        assert failure_text(first).count("<- ") == 3
+
+
 class TestForwardedEnvironment:
     """A command keeps the caller's GPU selection and board identity."""
 
@@ -739,7 +767,6 @@ class TestEvidence:
                 name="deepseek",
                 model="some/model",
                 result="Nothing blocks it.",
-                cached=False,
                 elapsed_seconds=1.0,
                 steps_path=path,
             )
@@ -749,14 +776,13 @@ class TestEvidence:
         assert "rg -n baddbmm helion" in prompt
         assert "cute_codegen.py:571" in prompt
 
-        # A reviewer with no steps file (a served record) says nothing extra.
-        cached = [
+        # A reviewer with no steps file says nothing extra.
+        no_steps = [
             Outcome[str](
                 name="glm",
                 model="some/model",
                 result="Nothing blocks it.",
-                cached=True,
                 elapsed_seconds=0.0,
             )
         ]
-        assert "What it ran:" not in summarize_prompt("the change", cached)
+        assert "What it ran:" not in summarize_prompt("the change", no_steps)

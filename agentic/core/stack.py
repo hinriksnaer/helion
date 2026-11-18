@@ -104,7 +104,7 @@ class Definition:
     ``capabilities`` is built by :meth:`agentic.core.step.Step.definition`, the
     one place a policy is attached. ``names`` is the short list the record carries
     -- what this package adds, not ``Coder``'s internals -- and :meth:`digest` is
-    over the policy, so editing it makes an earlier answer stale.
+    over the policy, so the record says which text produced an answer.
     """
 
     capabilities: CombinedCapability[Any]
@@ -171,13 +171,10 @@ def capability_id(capability: AbstractCapability[Any]) -> str:
 
 
 def definition_digest(*, instructions: str, material: dict[str, Any]) -> str:
-    """A digest of what the agent *is*.
+    """A digest of what the agent *is*: its policy, composition and tools.
 
-    The artifact key covers the question -- the prompt, the model and the task's
-    inputs -- and this covers the answerer. Folding it into the key made a
-    docstring edit re-key every record, so it goes on the record and the loader
-    compares it before reusing an answer (see
-    :meth:`agentic.core.artifact.Artifact.provenance_stale`).
+    Recorded on the run so a reader can tell whether two answers came from the
+    same agent, which is what makes a run's evidence comparable.
     """
     payload = json.dumps(
         {"instructions": instructions, **material},

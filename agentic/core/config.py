@@ -409,13 +409,13 @@ def build_model(config: Config, ref: ModelRef) -> Model:
 
     if provider.kind == "test":
         # A credential-free path through the whole pipeline: same composition,
-        # same contract, same artifacts, synthetic answers. This is what lets
-        # the tool be reviewed -- and smoke-tested -- without a key.
+        # same contract, synthetic answers. This is what lets the tool be
+        # reviewed -- and smoke-tested -- without a key.
         from pydantic_ai.models.test import TestModel
 
-        # No tool calls: this path exists to exercise the contract, the
-        # artifact and the gate, not the tools, and a TestModel left to its
-        # own devices calls `load_capability` with invented arguments forever.
+        # No tool calls: this path exists to exercise the contract and the gate,
+        # not the tools, and a TestModel left to its own devices calls
+        # `load_capability` with invented arguments forever.
         return TestModel(call_tools=[])
 
     api_key = provider.api_key()

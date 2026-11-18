@@ -58,19 +58,13 @@ __all__ = [
 _INSTRUCTIONS = Path(__file__).resolve().parent / "instructions"
 
 
-def _step(
-    name: str,
-    *,
-    skills_dirs: tuple[str, ...],
-    reusable: bool = True,
-) -> Step[str]:
+def _step(name: str, *, skills_dirs: tuple[str, ...]) -> Step[str]:
     """One step: `Coder` + its policy, answering with prose."""
     return Step(
         kind=f"improve_{name}",
         instructions=(_INSTRUCTIONS / f"{name}.md").read_text(),
         output_type=str,
         skills_dirs=skills_dirs,
-        reusable=reusable,
     )
 
 
@@ -211,7 +205,7 @@ def _workers(run: Run, config: Config, settings: ImproveSettings, base: str) -> 
         ("plan", _step("plan", skills_dirs=skills)),
         # The writer commits with its own shell: the policy says how, and that
         # the branch is the result. Nothing here needs a bespoke commit tool.
-        ("writer", _step("write", skills_dirs=skills, reusable=False)),
+        ("writer", _step("write", skills_dirs=skills)),
     ]
     scan, choose, plan, write = run.build_workers(
         [(name, config.resolve(choosing[name]), step) for name, step in specs]
@@ -319,8 +313,10 @@ shell, and `nvidia-smi -L`, `python -c "import torch, triton"` and
 #: procedure, so it is stated once here and not repeated per policy.
 _READER_TREE = """\
 This is a private snapshot taken for your turn: it is hashed before and after, so
-an edit you leave behind discards your answer. To try something, copy the file to
-`/tmp` or import and subclass it from a scratch script -- never edit the tree."""
+an edit you leave behind discards your answer. To try something, write a scratch
+file under `/tmp` with the shell (`cat > /tmp/try.py <<'EOF'`), or import and
+subclass from a scratch script -- the file tools cannot leave the tree, and
+anything you put inside it counts as an edit."""
 
 
 def _choose_prompt(scan: str) -> str:

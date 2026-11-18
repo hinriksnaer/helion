@@ -2,8 +2,8 @@
 
 A **step** is one kind of agent turn: a policy, an answer type, and any tool the
 harness has no equivalent for. A **worker** is a step bound to a model under a
-name. A **task** is a prompt plus the digests of what it is about, which together
-name the recorded answer.
+name. A **task** is a prompt plus the digests of what it is about, which name the
+turn's evidence files.
 
 Nothing here runs anything; :class:`agentic.core.lifecycle.Run` does.
 
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field
+import hashlib
 import json
 from typing import TYPE_CHECKING
 from typing import Any
@@ -24,8 +25,6 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from . import artifact as artifact_store
-
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -33,7 +32,6 @@ if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
     from pydantic_ai.models import Model
 
-    from .artifact import Artifact
     from .config import ModelRef
     from .config import ThinkingLevel
     from .stack import Definition
@@ -42,7 +40,7 @@ if TYPE_CHECKING:
 class Answer(BaseModel):
     """The base for a step whose answer the *run* reads, rather than the next model.
 
-    ``error`` set means "this turn produced no answer", which is never reused.
+    ``error`` set means "this turn produced no answer".
     A step that answers ``str`` needs none of this: prose is for the next model,
     and a failed turn is the failure itself.
     """
@@ -79,28 +77,15 @@ class Step(Generic[A]):
             whose fields the run acts on.
         skills_dirs: Skill libraries offered to the agent, read from the run's
             workspace.
-        reusable: Whether a recorded answer may be served instead of running the
-            step. False for a step whose output is a side effect (a commit).
-        schema_version: The answer shape's version; a record from another version
-            is treated as absent, never as a pass.
     """
 
     kind: str
     instructions: str
     output_type: type[A]
     skills_dirs: tuple[str, ...] = ()
-    reusable: bool = True
-    schema_version: str = "1"
-
-    def parse(self, data: dict[str, Any]) -> A:
-        """A recorded answer, back in this step's shape."""
-        if isinstance(self.output_type, type) and issubclass(
-            self.output_type, BaseModel
-        ):
-            return self.output_type.model_validate(data)  # type: ignore[return-value]
-        return data.get("text", "")  # type: ignore[return-value]
 
     def as_record(self, answer: object) -> dict[str, Any]:
+        """The evidence file's content: the workflow's answer, as JSON."""
         if isinstance(answer, BaseModel):
             return answer.model_dump(mode="json")
         return {"text": answer}
@@ -160,10 +145,6 @@ class Worker(Generic[A]):
     model: Model[Any]
     definition: Definition
     digest: str
-    #: What the model's provider resolves to, for the artifact key.
-    provider: str = ""
-    #: The role's model settings, as the artifact key records them.
-    settings: str = ""
     #: What a reader's private tree is taken from (``None``: the caller's checkout).
     source: Path | None = None
     #: The built agent. A workspace is a run-time argument, so one agent answers
@@ -178,8 +159,8 @@ class Task:
     Attributes:
         name: The workflow's name for this unit of work, for a reader.
         prompt: The text the agent is given.
-        inputs: Named digests of what the task is about. With the prompt, the
-            model and the step they are the cache key.
+        inputs: Named digests of what the task is about, for a reader of the
+            record; they do not decide whether it runs again.
         revision: The revision the reader's checkout is taken at, when the task is
             about a commit or a range.
         branch: For a task whose answer is a change: the branch the run owns, in
@@ -195,23 +176,12 @@ class Task:
     base: str | None = None
 
     def identity(self) -> str:
-        return artifact_store.diff_digest(
+        """A stable name for this question, used to number its evidence files."""
+        return _digest(
             json.dumps(
                 [self.name, self.prompt, self.inputs, self.revision, self.branch],
                 sort_keys=True,
             )
-        )
-
-    def key(self, worker: Worker[Any]) -> str:
-        """The artifact key of this question, asked of ``worker``."""
-        return artifact_store.key_for(
-            agent=worker.step.kind,
-            model=worker.ref.label,
-            provider=worker.provider,
-            settings=worker.settings,
-            prompt=self.prompt,
-            inputs=self.inputs,
-            schema_version=worker.step.schema_version,
         )
 
 
@@ -222,26 +192,22 @@ class Outcome(Generic[A]):
     name: str
     model: str
     result: A
-    cached: bool
     elapsed_seconds: float
-    stale: bool = False
     usage: dict[str, float] | None = None
     timing: dict[str, float] | None = None
     outcome_path: Path | None = None
     messages_path: Path | None = None
     steps_path: Path | None = None
-    artifact: str | None = None
-    #: The live message history, for continuing this turn. Empty when cached.
+    #: The live message history, for continuing this turn.
     history: list[ModelMessage] = field(default_factory=list, repr=False)
     #: The task this answered, so a later turn continues the same conversation
     #: and works in the same tree (a writer's refine round).
     task: Task | None = field(default=None, repr=False)
-    #: The tree this turn worked in. ``None`` for a served record.
+    #: The tree this turn worked in.
     tree: Path | None = field(default=None, repr=False)
     #: Why this turn produced no answer, or ``None``. A failed turn is a stopped
     #: run, never an empty success.
     error: str | None = None
-    pending: Artifact | None = field(default=None, repr=False)
 
     @property
     def failed(self) -> bool:
@@ -258,18 +224,20 @@ class Outcome(Generic[A]):
         return {
             "name": self.name,
             "model": self.model,
-            "cached": self.cached,
-            "stale": self.stale,
             "elapsed_seconds": round(self.elapsed_seconds, 1),
             "timing": self.timing,
             "usage": self.usage,
             "transcript": _name(self.messages_path),
             "steps": _name(self.steps_path),
             "outcome": _name(self.outcome_path),
-            "artifact": self.artifact,
             "error": self.error,
         }
 
 
 def _name(path: Path | None) -> str | None:
     return path.name if path is not None else None
+
+
+def _digest(text: str) -> str:
+    """A stable digest of text, so one question always lands on one number."""
+    return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()

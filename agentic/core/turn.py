@@ -40,9 +40,8 @@ if TYPE_CHECKING:
 
     from .worktree import Tree
 
-#: The installed libraries an answer depends on. Recorded, and compared before a
-#: recorded answer is reused: the harness is 0.x and its behaviour moves between
-#: minors.
+#: The installed libraries a run depends on, recorded in its ``run.json``: the
+#: harness is 0.x and its behaviour moves between minors.
 VERSION_PACKAGES = ("pydantic", "pydantic-ai-slim", "pydantic-ai-harness")
 
 
@@ -133,6 +132,31 @@ def usage_from_messages(messages: list[ModelMessage]) -> RunUsage | None:
     return total if total is not None and total.requests else None
 
 
+#: How deep the chain in :func:`failure_text` goes: the exception, its cause, and
+#: a couple more. A transport failure is one or two links (the SDK's error, then
+#: the httpx error under it); a longer chain is a bug in something, not a story.
+_FAILURE_CHAIN = 4
+
+
+def failure_text(exc: BaseException) -> str:
+    """The exception and what raised it, in one line, for the record.
+
+    ``str(exc)`` alone lost why a run stopped. The OpenAI SDK reports a stream the
+    provider cut as ``Connection error.``, and only the ``httpx`` exception under
+    it says whether the peer closed the connection, a read timed out, or a proxy
+    refused -- which is the difference between the endpoint's bad hour and ours.
+    """
+    parts: list[str] = []
+    current: BaseException | None = exc
+    while current is not None and len(parts) < _FAILURE_CHAIN:
+        text = str(current).strip()
+        parts.append(
+            f"{type(current).__name__}: {text}" if text else type(current).__name__
+        )
+        current = current.__cause__ or current.__context__
+    return " <- ".join(parts)
+
+
 @dataclass
 class TurnResult:
     """Everything one turn left behind.
@@ -153,6 +177,10 @@ class TurnResult:
     #: transcript restores cleared tool results, which would re-inflate the
     #: context a continuation sends.
     history: list[ModelMessage] = field(default_factory=list)
+    #: The exception a failed turn died of, or ``None`` for an answer. Kept so the
+    #: run can tell a transport failure from a refusal, and so the record says
+    #: what happened instead of the sixteen characters of ``str(exc)``.
+    failure: Exception | None = None
 
 
 async def run_turn(
@@ -254,6 +282,7 @@ async def run_turn(
             steps=recorder,
             event=str(failure),
             history=list(failed),
+            failure=failure,
         )
     # `usage` is a property in pydantic-ai 2.x, and calling it is deprecated.
     return TurnResult(

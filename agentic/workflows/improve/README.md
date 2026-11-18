@@ -16,8 +16,8 @@ rounds and the exit code; `instructions/` is what each step is told.
 ## The design rule
 
 **The orchestrator sequences; the models decide.** A step is one `await
-run.step(...)`: the run builds the task, serves a recorded answer or takes the
-turn, and stops the run when a step answers nothing. The orchestrator owns only
+run.step(...)`: the run builds the task and takes the turn, and stops the run
+when a step answers nothing. The orchestrator owns only
 what a person would otherwise have to remember:
 
 - which role runs which step;

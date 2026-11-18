@@ -121,12 +121,11 @@ class TestTheSteps:
             assert step.output_type is str
             assert step.instructions.strip()
 
-    def test_only_the_writer_commits_and_is_not_reusable(self) -> None:
-        writer = pipeline_mod._step("write", skills_dirs=(), reusable=False)
+    def test_only_the_writer_commits(self) -> None:
+        writer = pipeline_mod._step("write", skills_dirs=())
         # The writer commits with its own shell: no tool of ours is bound to it,
-        # and its answer is a side effect, so it is never served from a record.
+        # and the branch is the result the run keeps.
         assert writer.kind == "improve_write"
-        assert writer.reusable is False
 
     def test_every_step_is_the_harness_agent_with_its_own_policy(self) -> None:
         pytest.importorskip("pydantic_ai")
@@ -174,6 +173,66 @@ class TestTheStep:
             )
         assert seen[1]["message_history"] == first.history
         assert first.task is not None
+
+
+class TestAFailedTurnSays:
+    """What the record keeps of a turn that died.
+
+    `str(exc)` of an SDK transport error is "Connection error.", which cannot say
+    whether the endpoint or this side dropped the stream -- so the exception and
+    what raised it are kept, and the run stops on one attempt exactly as before.
+    """
+
+    def test_the_record_says_what_raised(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _git_repo(tmp_path)
+        run, worker = _writer(repo)
+        base = git.head_sha(cwd=repo)
+        cut = OSError("peer closed the connection")
+        cut.__cause__ = RuntimeError("Connection error.")
+        _fake_turn(monkeypatch, "", error="Connection error.", failure=cut)
+        with run.workspaces, pytest.raises(StepFailed) as raised:
+            asyncio.run(
+                run.step(
+                    worker,
+                    name="write",
+                    prompt="make it",
+                    branch=f"{PREFIX}says-what-raised",
+                    base=base,
+                )
+            )
+        assert str(raised.value) == (
+            "writer: OSError: peer closed the connection"
+            " <- RuntimeError: Connection error."
+        )
+
+    def test_the_turn_is_run_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No retry mechanic: a failed turn stops the run, and says so.
+        repo = _git_repo(tmp_path)
+        run, worker = _writer(repo)
+        base = git.head_sha(cwd=repo)
+        attempted: list[str] = []
+
+        async def fake(*args: object, **kwargs: object) -> TurnResult:
+            attempted.append(str(kwargs["steps_path"]))
+            return _turn("", error="Connection error.", failure=OSError("cut"))
+
+        monkeypatch.setattr("agentic.core.lifecycle.run_turn", fake)
+        with run.workspaces, pytest.raises(StepFailed):
+            asyncio.run(
+                run.step(
+                    worker,
+                    name="write",
+                    prompt="make it",
+                    branch=f"{PREFIX}runs-once",
+                    base=base,
+                )
+            )
+        assert len(attempted) == 1
+        assert "OSError: cut" in "\n".join(run.log.timeline)
 
 
 class TestTheWriterTree:
@@ -282,7 +341,7 @@ def _run(repo: Path) -> Run:
         config=_config(),
         repo=repo,
         log=RunLog.create(repo, command="t"),
-        summary=RunSummary(environment="env"),
+        summary=RunSummary(),
         timeout=60.0,
         usage_limits=None,
     )
@@ -295,14 +354,19 @@ def _writer(repo: Path, base: str | None = None) -> tuple[Run, Worker[str]]:
             (
                 "writer",
                 _config().resolve("one"),
-                pipeline_mod._step("write", skills_dirs=(), reusable=False),
+                pipeline_mod._step("write", skills_dirs=()),
             )
         ]
     )
     return run, worker
 
 
-def _turn(answer: str, *, error: str | None = None) -> TurnResult:
+def _turn(
+    answer: str,
+    *,
+    error: str | None = None,
+    failure: Exception | None = None,
+) -> TurnResult:
     from agentic.core import steps as steps_mod
     from agentic.core.turn import TurnResult
 
@@ -314,14 +378,19 @@ def _turn(answer: str, *, error: str | None = None) -> TurnResult:
         steps=steps_mod.StepRecorder(),
         event=error or "ok",
         history=[],
+        failure=failure,
     )
 
 
 def _fake_turn(
-    monkeypatch: pytest.MonkeyPatch, answer: str, *, error: str | None = None
+    monkeypatch: pytest.MonkeyPatch,
+    answer: str,
+    *,
+    error: str | None = None,
+    failure: Exception | None = None,
 ) -> None:
     async def fake(*args: object, **kwargs: object) -> TurnResult:
-        return _turn(answer, error=error)
+        return _turn(answer, error=error, failure=failure)
 
     monkeypatch.setattr("agentic.core.lifecycle.run_turn", fake)
 

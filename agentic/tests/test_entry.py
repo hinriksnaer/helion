@@ -68,16 +68,19 @@ class TestAutoreview:
         assert record["exit_code"] == 0
         assert record["models"]["high"] == "t/m"
 
-    def test_the_second_run_is_served_from_the_record(
+    def test_a_second_run_reviews_again(
         self, repo: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        # Nothing is recorded between runs: the second run pays for its own turn.
         from agentic.scripts import autoreview
 
         argv = ["--config", "config.toml", "--head"]
         assert autoreview.main(argv) == 0
         capsys.readouterr()
         assert autoreview.main(argv) == 0
-        assert "cached" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "cached" not in out
+        assert "reviewed" in out
 
     def test_a_missing_config_cannot_start(self, repo: Path) -> None:
         from agentic.scripts import autoreview
@@ -114,15 +117,10 @@ class TestSharedFlags:
     def test_every_entry_point_takes_the_run_flags(self) -> None:
         from agentic.scripts import autoreview
 
-        flags = ["--no-cache", "--reuse-stale", "--trace", "--timeout", "7", "--json"]
+        flags = ["--trace", "--timeout", "7", "--json"]
         for parse in (autoreview.parse_args,):
             args = parse(flags)
-            assert (args.no_cache, args.reuse_stale, args.trace, args.json) == (
-                True,
-                True,
-                True,
-                True,
-            )
+            assert (args.trace, args.json) == (True, True)
             assert args.timeout == 7.0
 
     def test_a_typo_exits_4_not_argparse_s_2(self) -> None:
