@@ -212,8 +212,6 @@ class Run:
     #: The local workspaces handed to turns, one per tree (the harness's
     #: ``workspace=`` argument): the command environment is per tree.
     sessions: dict[Path, LocalWorkspaceBackend] = field(default_factory=dict)
-    #: Branches this run made and refused, deleted once their worktrees close.
-    _dropped_branches: set[str] = field(default_factory=set)
     #: Whether any turn has happened yet. A failure before the first one is
     #: "could not start"; after it, the run stopped partway.
     began: bool = False
@@ -286,14 +284,8 @@ class Run:
                 usage_limits=UsageLimits(request_limit=None, total_tokens_limit=tokens),
             )
             try:
-                try:
-                    with run.workspaces:
-                        yield run
-                finally:
-                    # After the workspaces close: git will not delete a
-                    # checked-out branch, and a refused change must not leave
-                    # one behind for the next run to treat as a claim.
-                    run._settle_branches()
+                with run.workspaces:
+                    yield run
             except BaseException as exc:
                 summary.error = cause(exc)
                 # A usage error is "could not start" only before the first turn:
@@ -504,24 +496,6 @@ class Run:
         if outcome.failed:
             raise StepFailed(worker.name, outcome)
         return outcome
-
-    def drop_branch(self, branch: str) -> None:
-        """Delete a branch the run made, once its worktree is gone.
-
-        A refused change must not leave a branch behind that the next run's
-        deterministic pick treats as a claim. Removal happens after the run's
-        workspaces close, because git will not delete a checked-out branch.
-        """
-        self._dropped_branches.add(branch)
-
-    def _settle_branches(self) -> None:
-        for branch in sorted(self._dropped_branches):
-            try:
-                git.git("branch", "-D", branch, cwd=self.repo)
-            except git.GitError as exc:  # nothing to delete, or someone kept it
-                self.log.event(f"could not delete branch {branch}: {exc}")
-            else:
-                self.log.event(f"dropped branch {branch}")
 
     async def turn(
         self,

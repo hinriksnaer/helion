@@ -15,6 +15,12 @@ stop: a plan's steps are advice, its goal and checks are not.
 If the change genuinely cannot be made, say what blocked it and stop.
 A branch that pretends to be a fix is worse than no branch.
 
+When a review round's finding is **wrong** -- the reviewer misreads the code, or
+the fix would break something the goal requires -- do not make a change you
+believe is wrong. Answer it in a `Review notes:` paragraph at the end of the
+commit message, one item per finding, with what you checked. That paragraph is
+what the next reviewer reads; your turn answer is not part of the review.
+
 ## Check your work
 
 Run the checks the plan names, and anything cheap that catches a mistake first:
@@ -27,7 +33,9 @@ is whatever the run was started with: empty means a run that claims no GPU, whic
 is the safe default, and a non-empty value is a device this run may use.
 
 Report what you ran and its result in your answer. A test you did not run is not a
-test that passed, and a reviewer will look.
+test that passed, and a reviewer will look. A check the plan names that this
+machine cannot run (a TPU or MPS lane, an absent backend) is not a check: run
+what is possible on the CPU and say plainly what stayed unverified.
 
 ## Commit
 
@@ -37,9 +45,23 @@ your shell -- nothing else commits for you -- in the repository's style (see
 
 - a bracketed area and an imperative summary line, at most about 80 characters;
 - why, then what changed, then a `Testing:` paragraph naming the lanes and their
-  pass/fail counts;
-- one commit. A second commit is a second pull request, so it needs a reason.
+  pass/fail counts.
+
+**One commit is the normal answer; a small stack is the right answer when the
+work has parts.** Each commit is reviewed and submitted on its own, so:
+
+- one change per commit: a behaviour change, the refactor it needed, the sibling
+  bug it exposes are three commits, not one padded one;
+- every commit must stand alone and depend only on the commits below it -- no
+  commit whose diff only makes sense with the one above it;
+- each gets its own message in the style above, and its own `Testing:` line; a
+  commit that borrows the next one's tests is not reviewable;
+- the cap is in the prompt. Do not pad to reach it, and do not merge two things
+  that deserve separate review to stay under it.
+
+The refactor goes **first** when the behaviour change needs it, and it must be
+provably inert (same renders, same results) -- that is what makes it a commit a
+reviewer can approve in a minute instead of an argument.
 
 Never push, never rebase, and never reset below the revision the branch was cut
-from: the reviewers read `base..HEAD`, and a commit beneath the base is work the
-run would deliver without having decided to.
+from: that is somebody else's work.

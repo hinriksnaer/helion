@@ -98,14 +98,22 @@ class ImproveSettings(WorkflowSettings):
             "blockers, and a round that adds no commit ends it too."
         ),
     )
+    max_commits: int = Field(
+        3,
+        ge=1,
+        le=5,
+        description=(
+            "How many commits one branch may carry. Each is reviewed and submitted "
+            "on its own, so the cap is a review budget: one is usual, two or three "
+            "for a change that has parts landing separately."
+        ),
+    )
 
 
 @dataclass(frozen=True, kw_only=True)
 class ImproveOptions(RunOptions):
     """One invocation's knobs, from the command line."""
 
-    #: Keep a branch whose review refused it, for inspection.
-    keep_failed: bool = False
     #: Cut the branch from this revision instead of the merge base with upstream.
     base: str | None = None
 

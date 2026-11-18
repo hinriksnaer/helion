@@ -95,7 +95,7 @@ agentic/scripts/autoreview.py --reviewer glm
 
 agentic/scripts/improve.py --dry-run         # who runs what, and the shape
 agentic/scripts/improve.py                   # scan, pick, plan, write, review
-agentic/scripts/improve.py --base origin/main --keep-failed
+agentic/scripts/improve.py --base origin/main   # cut the branch from a revision
 ```
 
 `--dry-run` prints the target, the models, the endpoints, the composition and the

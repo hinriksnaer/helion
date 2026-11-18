@@ -38,7 +38,7 @@ the control flow is a line with one retry loop.
 | choose | prose | investigates, picks one, and its first line names the branch |
 | plan | prose | the smallest change: goal, files, edits, how it is checked |
 | write | prose | makes it in a worktree, on the branch, and commits with its shell |
-| review | prose reviews + a typed verdict | `review.review_branch(...)`: two reviewers and a summariser |
+| review | prose reviews + a typed verdict | `review.review_range(...)`, once per commit of the branch |
 | refine | prose | the same conversation, handed the verdict |
 
 Every step is the harness's `Coder`, whole, plus its policy. There are no extra
@@ -49,8 +49,14 @@ because the run acts on it.
 ## What it leaves
 
 A branch, `agentic/improve/<slug of the chosen line>`, cut from the merge base
-with upstream, with the writer's commits. Nothing is pushed. A branch the review
-blocks is deleted unless `--keep-failed`.
+with upstream, with the writer's commits -- **one commit per change**, up to
+`max_commits` (three by default). The branch may therefore be a small stack, and
+it is reviewed that way: each commit is reviewed against its parent, the verdict
+names the commit it is about, a refine round amends that commit, and a commit
+whose sha did not move keeps the verdict it already earned. That is the unit a
+maintainer approves and the unit `stack-pr` submits. Nothing is pushed. A branch the review
+blocks is **kept**: a refused commit is still work a person can read, and
+deleting it is their decision.
 
 The branch is also the claim: a candidate whose branch exists is not started
 again, and the scan is told which branches are in flight. Git records who is

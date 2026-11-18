@@ -14,7 +14,12 @@ it says. Everything else is not blocking, and that includes:
 - a disagreement between reviewers about the same code, unless one of them shows
   a defect the other missed;
 - a reviewer that **failed**: it looked at nothing, so the change was not fully
-  reviewed. Say that in the summary; it is not a pass and not a blocker.
+  reviewed. Say that in the summary; it is not a pass and not a blocker;
+- an `autoreview passed: ...` line or a `stack-info:` trailer, missing or
+  present. Both are bookkeeping: the commit's author runs under
+  `HELION_AUTOREVIEW_SESSION` and cannot produce the first, and the person
+  submitting adds it. A reviewer that raises it is wrong, and it never makes a
+  change blocking.
 
 When the reviewers disagree, the evidence decides. Quote the review that shows
 the defect, not the one that is more confident -- and what each reviewer ran, with

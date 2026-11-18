@@ -328,6 +328,46 @@ async def review_change(
     return reviews, verdict
 
 
+async def review_range(
+    run: Run,
+    config: Config,
+    *,
+    repo: Path,
+    base: str,
+    head: str,
+    name: str,
+    reviewers_: Sequence[Worker[str]],
+    summarizer_: Worker[Verdict],
+) -> tuple[list[AgentOutcome], Outcome[Verdict]]:
+    """Review ``base..head`` in ``repo``: every reviewer, then a verdict.
+
+    One unit of review is a *range*, not a branch, which is what lets a stack be
+    judged commit by commit -- and a stack is reviewed commit by commit because
+    that is the unit a maintainer submits and a reviewer approves.
+
+    The reviewers are given the tree the range ends at and read the diff
+    themselves; nothing here computes one.
+    """
+    what = f"the change `{base[:12]}..{head[:12]}` in this worktree"
+    task = Task(
+        name=name,
+        prompt=review_prompt(what),
+        inputs={"what": what, "base": base, "head": head},
+        revision=head,
+    )
+    reviews = await run.fan_out(reviewers_, task)
+    verdict = await run.turn(
+        summarizer_,
+        Task(
+            name="summarize",
+            prompt=summarize_prompt(what, reviews),
+            inputs={"what": what},
+            revision=head,
+        ),
+    )
+    return reviews, verdict
+
+
 async def review_branch(
     run: Run,
     config: Config,
@@ -339,24 +379,16 @@ async def review_branch(
     summarizer_: Worker[Verdict],
 ) -> tuple[list[AgentOutcome], Outcome[Verdict]]:
     """How another workflow has its branch judged: ``base..HEAD`` in ``repo``."""
-    what = f"the change `{base[:12]}...HEAD` in this worktree"
-    task = Task(
+    return await review_range(
+        run,
+        config,
+        repo=repo,
+        base=base,
+        head="HEAD",
         name=name,
-        prompt=review_prompt(what),
-        inputs={"what": what, "base": base},
-        revision="HEAD",
+        reviewers_=reviewers_,
+        summarizer_=summarizer_,
     )
-    reviews = await run.fan_out(reviewers_, task)
-    verdict = await run.turn(
-        summarizer_,
-        Task(
-            name="summarize",
-            prompt=summarize_prompt(what, reviews),
-            inputs={"what": what},
-            revision="HEAD",
-        ),
-    )
-    return reviews, verdict
 
 
 async def run_review(config: Config, options: ReviewOptions, repo: Path) -> Summary:

@@ -235,6 +235,137 @@ class TestAFailedTurnSays:
         assert "OSError: cut" in "\n".join(run.log.timeline)
 
 
+class TestAStackIsReviewedCommitByCommit:
+    """A branch may carry a stack, and the unit of review is one commit.
+
+    That is the unit a maintainer approves and what `stack-pr` submits, so the
+    verdict has to be attributable to a commit -- and a commit whose sha did not
+    move keeps the verdict it already earned.
+    """
+
+    def _stack_repo(self, tmp_path: Path) -> tuple[Path, str]:
+        repo = _git_repo(tmp_path)
+        base = git.head_sha(cwd=repo)
+        run_git = _git_runner(repo)
+        for name in ("second", "third"):
+            (repo / "a.txt").write_text(f"{name}\n")
+            run_git("commit", "-q", "-am", name)
+        return repo, base
+
+    def _workers(self) -> Any:
+        from agentic.workflows.improve.state import Workers
+
+        # The review workers are only built when absent; a sentinel is enough
+        # because `review_range` is replaced below.
+        return Workers(
+            scan=None,
+            choose=None,
+            plan=None,
+            write=None,
+            reviewers=[object()],
+            summarizer=object(),
+        )
+
+    def test_the_stack_is_one_review_per_commit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agentic.workflows.review.workflow import Verdict
+
+        repo, base = self._stack_repo(tmp_path)
+        calls: list[tuple[str, str]] = []
+
+        async def fake_review_range(*args: object, **kwargs: object) -> Any:
+            calls.append((str(kwargs["base"]), str(kwargs["head"])))
+            return [], _outcome(Verdict(blocking=False, text="clean"))
+
+        monkeypatch.setattr(
+            "agentic.workflows.review.workflow.review_range", fake_review_range
+        )
+        run = _run(repo)
+        with run.workspaces:
+            verdicts = asyncio.run(
+                pipeline_mod._review(
+                    run, _config(), ImproveSettings(), self._workers(), base, repo
+                )
+            )
+        assert len(verdicts) == 2, verdicts
+        assert [head for _, head in calls] == [v.commit for v in verdicts]
+        # The first commit is reviewed against base, the second against the first.
+        assert calls[0][0] == base
+        assert calls[1][0] == verdicts[0].commit
+        assert not pipeline_mod._blocking(verdicts)
+
+    def test_an_unmoved_commit_keeps_its_verdict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agentic.workflows.review.workflow import Verdict
+
+        repo, base = self._stack_repo(tmp_path)
+        calls: list[str] = []
+
+        async def fake_review_range(*args: object, **kwargs: object) -> Any:
+            calls.append(str(kwargs["head"]))
+            return [], _outcome(Verdict(blocking=False, text="clean"))
+
+        monkeypatch.setattr(
+            "agentic.workflows.review.workflow.review_range", fake_review_range
+        )
+        run = _run(repo)
+        with run.workspaces:
+            first = asyncio.run(
+                pipeline_mod._review(
+                    run, _config(), ImproveSettings(), self._workers(), base, repo
+                )
+            )
+            again = asyncio.run(
+                pipeline_mod._review(
+                    run,
+                    _config(),
+                    ImproveSettings(),
+                    self._workers(),
+                    base,
+                    repo,
+                    seen=first,
+                )
+            )
+        assert len(calls) == 2, "the second pass re-reviewed an unchanged commit"
+        assert [v.commit for v in again] == [v.commit for v in first]
+        assert "kept its verdict" in "\n".join(run.log.timeline)
+
+    def test_a_blocked_commit_blocks_the_stack(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agentic.workflows.review.workflow import Verdict
+
+        repo, base = self._stack_repo(tmp_path)
+        verdicts = iter(
+            [
+                Verdict(blocking=False, text="clean"),
+                Verdict(blocking=True, text="a blocker in the second commit"),
+            ]
+        )
+
+        async def fake_review_range(*args: object, **kwargs: object) -> Any:
+            return [], _outcome(next(verdicts))
+
+        monkeypatch.setattr(
+            "agentic.workflows.review.workflow.review_range", fake_review_range
+        )
+        run = _run(repo)
+        with run.workspaces:
+            reviewed = asyncio.run(
+                pipeline_mod._review(
+                    run, _config(), ImproveSettings(), self._workers(), base, repo
+                )
+            )
+        assert pipeline_mod._blocking(reviewed)
+        text = pipeline_mod._text(reviewed)
+        assert "a blocker in the second commit" in text
+        # Each section names its commit, so the writer knows which one to amend.
+        for item in reviewed:
+            assert item.commit in text
+
+
 class TestTheWriterTree:
     def test_the_branch_outlives_the_worktree(self, tmp_path: Path) -> None:
         repo = _git_repo(tmp_path)
@@ -359,6 +490,23 @@ def _writer(repo: Path, base: str | None = None) -> tuple[Run, Worker[str]]:
         ]
     )
     return run, worker
+
+
+def _git_runner(repo: Path) -> Any:
+    import subprocess
+
+    def run(*args: str) -> None:
+        subprocess.run(
+            ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+        )
+
+    return run
+
+
+def _outcome(result: Any) -> Any:
+    from agentic.core.step import Outcome
+
+    return Outcome(name="t", model="p/m", result=result, elapsed_seconds=0.1)
 
 
 def _turn(

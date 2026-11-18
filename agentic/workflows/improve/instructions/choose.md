@@ -41,7 +41,14 @@ narrower than the scan's -- it covers checking candidates, not making the choice
 
 Say in your answer which candidates you verified yourself and which a delegate
 brought back, so the plan and the reviewers know how much of a claim is second
-hand.
+hand. End it with a short **already proven** list: the commands you or a delegate
+actually ran and what they showed. The planner and the reviewers read your answer,
+and that list is what stops them paying for the same reproduction twice.
+
+Do not delegate a check the scan already wrote out for you -- run it yourself,
+it is usually one command. Delegate the verification you *cannot* do quickly:
+several candidates at once, a module you would have to read in full, a render
+that needs a fixture you have not learned yet.
 
 ## Then choose
 
@@ -51,8 +58,12 @@ Pick the one that is most worth doing **now**, given:
 - how much a reviewer can check afterwards;
 - how small the change can be. A change nobody can review is not an improvement,
   and the next step will keep the plan small;
-- whether the hardware here can show it. Prefer what can be verified on this
-  machine.
+- whether **this** machine can show it. A kernel run needs a backend that is
+  installed and a device that supports it: no `jax` means no Pallas run, no MPS
+  means no Metal run, a compute capability under 9.0 means no CuTe run. A CPU
+  *render* of the generated source does count when the claim is about the source
+  (see the scan's `notes`), but a candidate whose only check needs a TPU, a Mac
+  or a B200 is the last one to pick -- and if you pick it anyway, say why.
 
 This machine may be shared, and it is not yours to take a device from: a GPU
 belongs to whoever claimed it, and nothing here claims one for you. Check what

@@ -30,15 +30,20 @@ searching was, and the run starts again from a checkout. So:
 
 You have a shell and the whole tree. Use them for feasibility, not proof:
 
-- `nvidia-smi -L`, `python -c "import torch, triton"` and the backends'
-  availability say what this machine can actually verify. A candidate whose only
-  evidence needs a GPU that is not here is still a candidate: say that in
-  `notes`, with the check that would show it.
-- The compiler is the exception worth knowing: its output is text. A lowering, a
-  printer or a codegen decision can be rendered and read on the CPU -- through
-  `helion._testing.cpu_render_target` / `cpu_bind`, or a one-line
-  `HELION_PRINT_OUTPUT_CODE=1` compile -- so a compiler candidate is the one you
-  can prove here without taking a device from anyone.
+- **Ask the machine which backends it has; do not assume.** Three commands answer
+  it: `nvidia-smi -L` (which GPU), `python -c "import torch; print(torch.cuda.get_device_capability())"`
+  (a capability below 9.0 rules out the CuTe backend, which needs sm90+), and
+  `python -c "import jax"` / `python -c "import torch; print(torch.backends.mps.is_available())"`
+  (no jax means Pallas cannot run at all; no MPS means Metal cannot). A backend
+  this machine does not have is not a candidate -- a change only a TPU, a Mac or
+  a B200 can show belongs in "ruled out", with the check that would show it.
+- **But source is not hardware.** A lowering, a printer or a codegen decision can
+  be *rendered* and read on the CPU -- through `helion._testing.cpu_render_target`
+  / `cpu_bind`, or a one-line `HELION_PRINT_OUTPUT_CODE=1` compile -- so a Pallas
+  or Metal candidate about the generated source is fair game here even though
+  neither backend can launch. Say which you mean in every candidate: a claim
+  that a kernel *runs* needs the hardware; a claim about what it *renders* does
+  not.
 - `scripts/gpu_board.py status` says who else is using the machine.
 - `git log --oneline -15` and `git branch --list 'agentic/improve/*'` say what
   just landed and what another run already has in flight. Do not propose work
@@ -50,6 +55,14 @@ You have a shell and the whole tree. Use them for feasibility, not proof:
   script only when a pattern cannot, keep it to one short call, and give the
   call a bound: the shell tool takes `timeout=` (seconds, at most 270) and
   refuses more. Do not wrap a command in shell `timeout`.
+- **The expensive shape is a script that walks the tree** -- an AST pass over the
+  1,141 test modules, a `get_source_segment` per node, a compile of everything.
+  It is quadratic in practice (it cost one run four and a half minutes) and it
+  is almost never what the question needed. If you write one: pass `timeout=`,
+  print at most ~30 lines, and prefer `rg -c` / `rg --files | wc -l` first. A
+  job still running when the call returns is not your result: kill it
+  (`kill <pid>` from the status file) rather than leaving a core busy for the
+  rest of the run.
 - Do not run the test suite, `scripts/run_tests.py` or a lane. It takes the
   machine's CPUs for minutes and claims processors this run did not ask for. A
   file you read, a `git log` and a one-line reproduction answer the same

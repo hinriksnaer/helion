@@ -4,14 +4,14 @@
     agentic/scripts/improve.py --dry-run            # who, what with, and the shape
     agentic/scripts/improve.py                      # scan, pick, plan, write, review
     agentic/scripts/improve.py --base origin/main   # cut the branch from a revision
-    agentic/scripts/improve.py --keep-failed        # keep a branch review refused
 
 Five steps, two of them model-free:
 
 1. **scan**: one model proposes candidates, on a private copy of the tree;
 2. **choose**: a *different* model investigates them and picks one, and says why;
 3. **plan**: scopes the smallest change that carries the value;
-4. **write**: makes it in a worktree on a branch the run owns, and commits;
+4. **write**: makes it in a worktree on a branch the run owns and commits there --
+   one commit per change, up to `max_commits`, when the work has parts;
 5. **review**: this directory's review workflow judges the branch, and the
    reviewers send their blockers back to the writer in its own conversation
    until they find none. The reviewer decides; a round that adds no commit, or
@@ -19,9 +19,10 @@ Five steps, two of them model-free:
 
 What it leaves is a **branch**: `agentic/improve/<slug of the chosen name>`, cut
 from the merge base with upstream. Nothing is
-pushed, and a branch the reviewers refuse is dropped unless `--keep-failed`. The
-branch is also the claim: a candidate whose branch exists is skipped, so a rerun
-continues the backlog instead of repeating it.
+pushed, and a branch the reviewers refuse is **kept**: a commit is work, and
+deleting it is a person's decision. The branch is also the claim -- a candidate
+whose branch exists is skipped -- so delete a refused one to release its
+candidate to a later run.
 
 Exit status:
 
@@ -78,11 +79,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "origin/main, which is the change this checkout actually makes."
         ),
     )
-    parser.add_argument(
-        "--keep-failed",
-        action="store_true",
-        help="Keep the branch when review refuses the change, for inspection.",
-    )
     add_run_arguments(
         parser,
         dry_run=(
@@ -110,11 +106,7 @@ def _hint(exc: Exception) -> str | None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    options = ImproveOptions(
-        base=args.base,
-        keep_failed=args.keep_failed,
-        **run_options(args),
-    )
+    options = ImproveOptions(base=args.base, **run_options(args))
     return cli.main(
         args,
         report=REPORT,

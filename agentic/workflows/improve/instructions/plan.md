@@ -31,7 +31,10 @@ summary instead of the code wastes the writer's turn and comes back as blockers.
 - the edits in order, and why each is needed. Name the functions, the behaviour,
   the edge case. This is the writer's brief, not a diff;
 - how to know it worked: the test node ids or `-k` expressions, the command, and
-  the property that must stay true afterwards.
+  the property that must stay true afterwards. The command must run here: not a
+  TPU or MPS lane, not `scripts/run_tests.py`, and not a backend this machine
+  does not have. If the only real check needs hardware that is absent, say so and
+  plan the CPU render or the one string/grep assertion instead.
 
 ## Conventions that decide whether the plan is acceptable
 

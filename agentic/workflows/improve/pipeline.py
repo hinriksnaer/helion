@@ -16,6 +16,7 @@ the loop continues and whether the branch is delivered.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -154,15 +155,17 @@ async def _hand_off(
     write = await run.step(
         workers.write,
         name="write",
-        prompt=_write_prompt(summary.plan, branch, base),
+        prompt=_write_prompt(summary.plan, branch, base, settings.max_commits),
         inputs={"plan": summary.plan},
         branch=branch,
         base=base,
     )
     summary.rounds.append(Round(label="attempt-1", changed=write.result))
     assert write.tree is not None
+    if not _commits(write.tree, base):
+        return Rejected("the writer committed nothing on the branch", [write.result])
 
-    verdict = await _review(run, config, settings, workers, base, write.tree, branch)
+    verdict = await _review(run, config, settings, workers, base, write.tree)
     _record(summary, verdict)
     rounds = 0
     while _blocking(verdict) and rounds < settings.max_rounds:
@@ -183,11 +186,13 @@ async def _hand_off(
                 [_text(verdict)],
             )
         verdict = await _review(
-            run, config, settings, workers, base, write.tree, branch
+            run, config, settings, workers, base, write.tree, seen=verdict
         )
         _record(summary, verdict)
-    if verdict.failed:
-        return Rejected("review could not judge the change: a step failed")
+    if any(item.verdict.failed for item in verdict):
+        return Rejected(
+            "review could not judge the change: a step failed", [_text(verdict)]
+        )
     if _blocking(verdict):
         return Rejected(
             f"review still blocks the change after {rounds} refine round(s)",
@@ -215,6 +220,14 @@ def _workers(run: Run, config: Config, settings: ImproveSettings, base: str) -> 
     return Workers(scan=scan, choose=choose, plan=plan, write=write)
 
 
+@dataclass
+class CommitVerdict:
+    """One commit of the branch, and what the reviewers said about it."""
+
+    commit: str
+    verdict: Outcome[Verdict]
+
+
 async def _review(
     run: Run,
     config: Config,
@@ -222,40 +235,87 @@ async def _review(
     workers: Workers,
     base: str,
     tree: Path,
-    name: str,
-) -> Outcome[Verdict]:
-    """The review workflow, on the branch's own tree: two reviews and a verdict."""
+    *,
+    seen: list[CommitVerdict] | None = None,
+) -> list[CommitVerdict]:
+    """Review the branch **commit by commit**: the unit a stack is submitted in.
+
+    A stack is reviewed one commit at a time, because that is what a maintainer
+    approves and what `stack-pr` submits. A commit whose sha did not move between
+    rounds keeps the verdict it already has: the writer amending the top commit
+    does not re-open the review of the one below it.
+    """
     if not workers.reviewers:
         workers.reviewers = review_pipeline.reviewers(
             run, config, roles=settings.reviewers, snapshot_of=tree
         )
         workers.summarizer = review_pipeline.summarizer(run, config, snapshot_of=tree)
-    _, verdict = await review_pipeline.review_branch(
-        run,
-        config,
-        repo=tree,
-        base=base,
-        name=name,
-        reviewers_=workers.reviewers,
-        summarizer_=workers.summarizer,
-    )
-    return verdict
+    known = {item.commit: item.verdict for item in seen or ()}
+    verdicts: list[CommitVerdict] = []
+    for commit, parent in _stack(tree, base):
+        if commit in known:
+            run.log.event(f"  {commit}: kept its verdict from an earlier round")
+            verdicts.append(CommitVerdict(commit=commit, verdict=known[commit]))
+            continue
+        _, verdict = await review_pipeline.review_range(
+            run,
+            config,
+            repo=tree,
+            base=parent,
+            head=commit,
+            name=f"review-{commit}",
+            reviewers_=workers.reviewers,
+            summarizer_=workers.summarizer,
+        )
+        verdicts.append(CommitVerdict(commit=commit, verdict=verdict))
+    return verdicts
 
 
-def _record(summary: Summary, verdict: Outcome[Verdict]) -> None:
+def _record(summary: Summary, verdict: list[CommitVerdict]) -> None:
     round_ = summary.rounds[-1]
     round_.blocking = _blocking(verdict)
     round_.verdict = _text(verdict)
 
 
-def _blocking(verdict: Outcome[Verdict]) -> bool:
-    return not verdict.failed and verdict.result.blocking
+def _blocking(verdict: list[CommitVerdict]) -> bool:
+    return any(
+        not item.verdict.failed and item.verdict.result.blocking for item in verdict
+    )
 
 
-def _text(verdict: Outcome[Verdict]) -> str:
-    if verdict.failed:
-        return f"no verdict: {verdict.error}"
-    return verdict.result.text
+def _text(verdict: list[CommitVerdict]) -> str:
+    if not verdict:
+        return "no commits to review"
+    parts: list[str] = []
+    for item in verdict:
+        if item.verdict.failed:
+            parts.append(f"{item.commit}: no verdict ({item.verdict.error})")
+        else:
+            parts.append(f"{item.commit}: {item.verdict.result.text.strip()}")
+    return "\n\n".join(parts)
+
+
+def _stack(tree: Path, base: str) -> list[tuple[str, str]]:
+    """Every commit on the branch with its parent, oldest first.
+
+    ``base`` is the parent of the first one, so a one-commit branch is one range.
+    """
+    try:
+        listed = git.git(
+            "log", "--reverse", "--format=%h %p", f"{base}..HEAD", cwd=tree
+        )
+    except git.GitError:
+        return []
+    stack: list[tuple[str, str]] = []
+    parent = base
+    for line in listed.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        commit = parts[0]
+        stack.append((commit, parent))
+        parent = commit
+    return stack
 
 
 def _commits(tree: Path, base: str) -> list[str]:
@@ -351,10 +411,16 @@ Say the goal, the files it touches, the edits in order, and how it is checked.
 """
 
 
-def _write_prompt(plan: str, branch: str, base: str) -> str:
+def _write_prompt(plan: str, branch: str, base: str, max_commits: int) -> str:
     return f"""\
 Make the change below in this worktree, on branch `{branch}` cut from
 `{base[:12]}`. Commit your work there; do not push.
+
+At most {max_commits} commit(s): one is usual, and a second or third is for work
+that lands on its own -- a behaviour change, the refactor it needed, the sibling
+it exposes. Each commit is reviewed and submitted separately, so each must stand
+alone and only depend on the ones below it. Each carries its own message in the
+repository's style.
 
 ## The plan
 
@@ -362,23 +428,35 @@ Make the change below in this worktree, on branch `{branch}` cut from
 """
 
 
-def _refine_prompt(verdict: Outcome[Verdict]) -> str:
+def _refine_prompt(verdict: list[CommitVerdict]) -> str:
     return f"""\
-A review of your branch blocks it. Fix that on the same branch, inside the same
-plan, and commit again (amend or add a commit -- the branch is what is reviewed).
+A review of your branch blocks it. Each section below names the commit it is
+about: fix that commit, on the same branch, inside the same plan (amend it, or
+`git commit --fixup=<sha>` and `--autosquash` to keep the stack linear). Do not
+rewrite a commit the review did not block.
 
 {_text(verdict)}
 
-If one of these is wrong -- the reviewer misreads the code, or the fix would break
-something the goal requires -- say so in your answer and explain why, rather than
-making a change you believe is wrong.
+If one of these is wrong -- the reviewer misreads the code, the fix would break
+something the goal requires, or it asks for something this session cannot do
+(running `scripts/autoreview.py` needs the marker cleared and a vault this run
+does not have) -- do not make a change you believe is wrong. Answer it in a
+`Review notes:` paragraph at the end of the commit message, one item per finding,
+with what you checked: that paragraph is what the next reviewer reads.
 """
 
 
 def _settle(
     run: Run, summary: Summary, options: ImproveOptions, result: Result
 ) -> None:
-    """Turn the run's answer into the record, and drop a refused branch."""
+    """Turn the run's answer into the record.
+
+    A branch is **never** deleted. A refused change is still work -- a commit that
+    a person can read, cherry-pick, or fix -- and throwing it away to keep a claim
+    namespace tidy is the wrong trade: the claim is a convenience, the commit is
+    the product. The branch stays where it is, the record says whether it was
+    delivered, and deleting it is a person's decision.
+    """
     if isinstance(result, Delivered):
         summary.commits = result.commits
         return
@@ -389,10 +467,8 @@ def _settle(
         return
     assert isinstance(result, Rejected)  # the three cases above are all of them
     summary.stop = result.reason
-    if options.keep_failed or not summary.branch:
-        return
-    run.drop_branch(summary.branch)
-    summary.stop += " (the branch was dropped; --keep-failed keeps it)"
+    if summary.branch:
+        run.log.event(f"  the branch is kept for inspection: {summary.branch}")
 
 
 def resolve_base(repo: Path, base: str | None) -> str:
