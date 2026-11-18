@@ -24,6 +24,7 @@ from typing import Annotated
 
 from pydantic import Field
 
+from ...core import steps
 from ...core.config import WorkflowSettings
 from ...core.lifecycle import EXIT_BLOCKED
 from ...core.lifecycle import EXIT_INCOMPLETE
@@ -259,19 +260,34 @@ saw), then the nits. Say plainly if you found nothing blocking.
     )
 
 
+def _review_block(review: AgentOutcome) -> str:
+    """One review, with the calls it made underneath it.
+
+    The prose is what the model concluded; the calls are what it can be held to.
+    A summariser handed only prose has to re-derive the evidence to weigh it,
+    which is both duplicated work and a second, less careful reading of the same
+    change.
+    """
+    block = f"## {review.name} ({review.model})"
+    if review.failed:
+        return block + " -- FAILED\n" + (review.error or "(no answer)")
+    block += "\n" + (review.result.strip() or "(said nothing)")
+    ran = steps.evidence(review.steps_path) if review.steps_path else ""
+    return block + (f"\n\nWhat it ran:\n\n{ran}" if ran else "")
+
+
 def summarize_prompt(what: str, reviews: Sequence[AgentOutcome]) -> str:
-    listed = "\n\n".join(
-        f"## {review.name} ({review.model})"
-        + (" -- FAILED\n" if review.failed else "\n")
-        + (review.error or review.result.strip() or "(said nothing)")
-        for review in reviews
-    )
+    listed = "\n\n".join(_review_block(review) for review in reviews)
     return f"""\
 Two reviewers looked at {what}. Decide whether it can land, and write what a
 person needs to know.
 
 A reviewer that failed looked at nothing; that is not a pass, and not a blocker
 either -- say it.
+
+Under each review is what that reviewer ran and how the call ended. Weigh that
+evidence against the prose; you do not have to re-run the checks to see whether
+a claim is backed, only where a reviewer did not look.
 
 ## The reviews
 

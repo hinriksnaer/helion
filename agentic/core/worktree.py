@@ -33,6 +33,7 @@ from pathlib import Path
 import shutil
 import signal
 import tempfile
+import time
 from typing import TYPE_CHECKING
 
 from . import git
@@ -225,6 +226,47 @@ def _common_dir(repo: Path) -> Path:
             "rev-parse", "--path-format=absolute", "--git-common-dir", cwd=repo
         ).strip()
     )
+
+
+#: The prefixes this package gives the directories it creates in the temporary
+#: directory. A run removes its own; these are what is left when it does not.
+_WORKSPACE_PREFIXES = ("agentic-worktree-", "agentic-snapshot-")
+
+#: How old a leftover workspace must be before it is swept. A turn is bounded by
+#: minutes, so a directory nothing has written to for hours belongs to a run that
+#: was killed, crashed, or lost its machine.
+STALE_HOURS = 6.0
+
+
+def sweep(
+    *, root: Path | None = None, older_than_hours: float = STALE_HOURS
+) -> list[Path]:
+    """Remove the workspace directories a run that died left behind.
+
+    `kill -9`, a crashed interpreter or a reboot leaves a tree in the temporary
+    directory -- roughly a hundred megabytes each, plus a worktree entry in the
+    repository it was made from -- and nothing else ever comes back for it. Only
+    this package's own prefixes are touched, and only directories nothing has
+    written to in hours, so a live run of any length is left alone.
+    """
+    where = root if root is not None else Path(tempfile.gettempdir())
+    cutoff = time.time() - older_than_hours * 3600
+    gone: list[Path] = []
+    try:
+        entries = list(where.iterdir())
+    except OSError:  # an unreadable temporary directory is not this run's problem
+        return gone
+    for entry in entries:
+        if not entry.name.startswith(_WORKSPACE_PREFIXES) or not entry.is_dir():
+            continue
+        try:
+            if entry.stat().st_mtime > cutoff:
+                continue
+        except OSError:
+            continue
+        shutil.rmtree(entry, ignore_errors=True)
+        gone.append(entry)
+    return gone
 
 
 def _remove(common: Path, path: Path) -> None:

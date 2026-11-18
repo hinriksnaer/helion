@@ -375,3 +375,33 @@ class TestLeftoverShellJobs:
         (tmp_path / "file.txt").write_text("keep me\n")
         worktree._reap(tmp_path)
         assert (tmp_path / "file.txt").read_text() == "keep me\n"
+
+
+class TestStaleWorkspaces:
+    def test_only_old_directories_with_our_prefixes_are_swept(
+        self, tmp_path: Path
+    ) -> None:
+        """A killed run leaves its tree behind, and nothing else comes back for it.
+
+        `kill -9`, a crashed interpreter or a reboot leaves ~100 MB in the
+        temporary directory plus a worktree entry in the repository it came from.
+        A live run of any length is left alone: the sweep is by age, not by name.
+        """
+        import os
+        import time
+
+        stale = tmp_path / "agentic-worktree-stale"
+        fresh = tmp_path / "agentic-worktree-live"
+        other = tmp_path / "someone-elses-dir"
+        for directory in (stale, fresh, other):
+            directory.mkdir()
+        old = time.time() - (worktree.STALE_HOURS + 1) * 3600
+        for directory in (stale, other):
+            os.utime(directory, (old, old))
+
+        gone = worktree.sweep(older_than_hours=worktree.STALE_HOURS, root=tmp_path)
+
+        assert gone == [stale]
+        assert not stale.exists()
+        assert fresh.exists()  # a live run, whatever its age in names
+        assert other.exists()  # not ours to remove

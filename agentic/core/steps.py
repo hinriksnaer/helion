@@ -411,6 +411,27 @@ def _result_record(step: Step) -> dict[str, Any]:
     }
 
 
+def evidence(path: Path, *, limit: int = 40, head: int = 120) -> str:
+    """What a turn ran, and how each call ended: the facts behind its prose.
+
+    A review says what a model concluded; this says what it did. The model that
+    weighs several reviews can then check a claim against the command that
+    produced it instead of re-running every check itself -- which is what the
+    summariser did when it was handed prose alone. Bounded to the last ``limit``
+    calls, one line each, each result cut at ``head`` characters.
+    """
+    lines: list[str] = []
+    for record in read_steps(path)[-limit:]:
+        summary = trace.argument_summary(
+            str(record.get("tool") or ""), str(record.get("args") or "")
+        )
+        failed = " (failed)" if record.get("ok") is False else ""
+        result = str(record.get("result_head") or "").strip()
+        detail = f" -> {result[:head]}" if result else ""
+        lines.append(f"- `{summary}`{failed}{detail}")
+    return "\n".join(lines)
+
+
 def read_steps(path: Path) -> list[dict[str, object]]:
     """Read a steps file back: one record per call, in the order they started.
 

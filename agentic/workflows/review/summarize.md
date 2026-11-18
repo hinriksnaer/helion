@@ -17,7 +17,10 @@ it says. Everything else is not blocking, and that includes:
   reviewed. Say that in the summary; it is not a pass and not a blocker.
 
 When the reviewers disagree, the evidence decides. Quote the review that shows
-the defect, not the one that is more confident.
+the defect, not the one that is more confident -- and what each reviewer ran, with
+how the call ended, is listed under its review. Weigh that; you do not have to
+re-run the checks to see whether a claim is backed, only where a reviewer did not
+look.
 
 ## The summary
 

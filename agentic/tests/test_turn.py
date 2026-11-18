@@ -675,3 +675,88 @@ class TestLiveViewWithTheRecorder:
         # live line carries the command once rather than twice.
         assert "chars omitted" in recorder.steps[0].args
         assert written.count("echo step0") == 1
+
+
+class TestEvidence:
+    """What a turn ran, as the facts a reviewer's prose can be held to."""
+
+    def _write(self, path: Path, *, failed: bool = False) -> None:
+        records = [
+            {
+                "event": "call",
+                "id": "c1",
+                "tool": "shell",
+                "args": '{"command": "rg -n baddbmm helion"}',
+                "started_ms": 10,
+                "sub": False,
+                "delegate": "",
+            },
+            {
+                "event": "result",
+                "id": "c1",
+                "ok": not failed,
+                "result_chars": 240,
+                "result_head": "helion/_testing/cute_codegen.py:571: assert op_name",
+                "seconds": 0.4,
+            },
+        ]
+        path.write_text("\n".join(json.dumps(record) for record in records) + "\n")
+
+    def test_it_lists_the_command_and_how_it_ended(self, tmp_path: Path) -> None:
+        path = tmp_path / "0-0-reviewer.steps.jsonl"
+        self._write(path)
+        lines = steps_mod.evidence(path).splitlines()
+        assert len(lines) == 1
+        # The command, as the live view summarizes it, and the result's opening.
+        assert "rg -n baddbmm helion" in lines[0]
+        assert "cute_codegen.py:571" in lines[0]
+        assert "failed" not in lines[0]
+
+    def test_a_failed_call_is_marked(self, tmp_path: Path) -> None:
+        path = tmp_path / "0-0-reviewer.steps.jsonl"
+        self._write(path, failed=True)
+        assert "(failed)" in steps_mod.evidence(path)
+
+    def test_a_missing_file_is_empty_not_an_error(self, tmp_path: Path) -> None:
+        assert steps_mod.evidence(tmp_path / "nothing.steps.jsonl") == ""
+
+    def test_the_summary_prompt_carries_what_each_reviewer_ran(
+        self, tmp_path: Path
+    ) -> None:
+        """The gap this closes: a summariser given prose alone re-derives evidence.
+
+        It spent 179 s re-running two reviewers' checks because the only way to
+        weigh their claims was to reproduce them.
+        """
+        pytest.importorskip("pydantic_ai")
+        from agentic.core.step import Outcome
+        from agentic.workflows.review.workflow import summarize_prompt
+
+        path = tmp_path / "0-0-reviewer.steps.jsonl"
+        self._write(path)
+        reviews = [
+            Outcome[str](
+                name="deepseek",
+                model="some/model",
+                result="Nothing blocks it.",
+                cached=False,
+                elapsed_seconds=1.0,
+                steps_path=path,
+            )
+        ]
+        prompt = summarize_prompt("the change `abc...HEAD`", reviews)
+        assert "What it ran:" in prompt
+        assert "rg -n baddbmm helion" in prompt
+        assert "cute_codegen.py:571" in prompt
+
+        # A reviewer with no steps file (a served record) says nothing extra.
+        cached = [
+            Outcome[str](
+                name="glm",
+                model="some/model",
+                result="Nothing blocks it.",
+                cached=True,
+                elapsed_seconds=0.0,
+            )
+        ]
+        assert "What it ran:" not in summarize_prompt("the change", cached)

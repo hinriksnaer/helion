@@ -67,7 +67,7 @@ if TYPE_CHECKING:
     from .config import ModelRef
     from .config import WorkflowSettings
     from .report import Report
-    from .stack import Composed
+    from .stack import Definition
     from .step import Step
     from .turn import TurnResult
 
@@ -359,6 +359,10 @@ class Run:
             self.summary.environment = environment(
                 self.repo, self.config.skills_dirs, self.summary.versions
             )
+            # Before anything is built: what a killed run left behind is this
+            # run's to clean up, and nobody else will.
+            for stale in worktree_mod.sweep():
+                self.log.event(f"  swept a workspace left by an earlier run: {stale}")
             self.log.event(f"environment {self.summary.environment[:16]}")
         source = snapshot_of or self.repo
         workers: list[Worker[Any]] = []
@@ -716,7 +720,7 @@ class Run:
         turn: TurnResult,
         *,
         label: str,
-        definition: Composed,
+        definition: Definition,
     ) -> Outcome[A]:
         """Write one turn's evidence and describe it, with its record ready."""
         result: A = turn.result
