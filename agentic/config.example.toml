@@ -60,7 +60,7 @@ kind = "openai"
 
 # --- or no network at all ---------------------------------------------------
 # `test` builds pydantic-ai's TestModel: the whole pipeline (composition,
-# contract, artifacts, logs, gate) runs with no credentials. Useful for checking
+# contract, logs, gate) runs with no credentials. Useful for checking
 # a config change before spending tokens.
 # [providers.fake]
 # kind = "test"
@@ -86,9 +86,6 @@ cheap = "openai/your-fast-model"
 # Two independent reviewers. Independent answers are the substance of a review;
 # one model agreeing with itself is not.
 agents = ["high", "cheap"]
-# How much of a diff goes into the prompt. Past this the agent is told to read
-# files itself, and the run record says the diff was truncated.
-max_diff_chars = 120000
 
 [workflows.improve]
 # One candidate in, one reviewed branch out: scan proposes, choose investigates

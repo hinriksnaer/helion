@@ -11,7 +11,7 @@ reads it against what you wrote here. So:
 
 - prefer one or two files and the smallest edit that gets the value;
 - if the value can only be had with a large diff, plan the small part that
-  unlocks it, and name the rest in `steps` as explicitly out of scope;
+  unlocks it, and name the rest as explicitly out of scope;
 - do not collect drivebys. An unrelated fix is a different candidate.
 
 A verifiable 20-line change that lands beats a 400-line one that argues with its
@@ -40,7 +40,7 @@ summary instead of the code wastes the writer's turn and comes back as blockers.
 - compatibility surfaces are not changed by a drive-by improvement: the
   `helion.language` API, `Settings` fields, `HELION_*` variables, public
   exceptions, and Triton configs in saved caches. If the candidate needs one
-  changed, say so in `error` -- that is a maintainer's decision, not this run's.
+  changed, say so and stop -- that is a maintainer's decision, not this run's.
 - a fix in code the change already touches belongs in the change; anything else
   is another candidate.
 - new tests follow the repository's test-budget rules, and go where tests go.
