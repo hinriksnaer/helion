@@ -16,6 +16,11 @@ Overrides:
   lose every digit of a small ``x`` (``log1p(1e-8)`` is 0); later ones still
   take ``exp(x) - 1`` for ``|x| >= 0.1``.  log1p takes c10's accurate
   function, as torch's MPS kernels do; expm1 Kahan's formula.
+- ``sign`` / ``truncdiv``: take their dtype from the FX node being lowered,
+  because Helion's handler passes the operands as plain CSE names, not
+  ``CSEVariable``s.  Inductor's MPS overrides read ``x.dtype``, so both ops
+  raised ``'str' object has no attribute 'dtype'`` for every dtype of
+  ``torch.sign`` and every integer trunc-div.
 """
 
 from __future__ import annotations
@@ -26,12 +31,23 @@ import torch
 from torch._inductor.codegen.mps import MetalOverrides as _InductorMetalOverrides
 from torch._inductor.virtualized import V
 from torch._inductor.virtualized import ops
+from torch.fx import Node
 
 from ..compile_environment import CompileEnvironment
 from ..inductor_lowering import _is_plain_true_division
 
 if TYPE_CHECKING:
     from torch._inductor.codegen.common import CSEVariable
+
+
+def _current_node_dtype() -> torch.dtype | None:
+    """The dtype of the FX node being lowered, or None outside a kernel
+    (``V.current_node`` is then a sentinel, not a node)."""
+    node = V.current_node
+    if not isinstance(node, Node):
+        return None
+    value = node.meta.get("val")
+    return value.dtype if isinstance(value, torch.Tensor) else None
 
 
 class MetalOverrides(_InductorMetalOverrides):
@@ -93,6 +109,34 @@ class MetalOverrides(_InductorMetalOverrides):
         # MSL never converts float to bfloat implicitly, so a 16-bit quotient
         # is rounded back to its dtype here, as torch rounds it.
         return f"static_cast<{env.backend.dtype_str(dtype)}>({quotient})"
+
+    @staticmethod
+    def sign(x: CSEVariable) -> str:
+        # Inductor's MPS sign reads x.dtype; Helion's handler passes the
+        # operand as a plain CSE name, so the dtype comes from the node.
+        dtype = _current_node_dtype()
+        if dtype is None:
+            return _InductorMetalOverrides.sign(x)
+        if not dtype.is_floating_point:
+            # metal::sign has no integer overloads: Inductor's MPS form.
+            return f"static_cast<decltype({x})>(({x} > 0) - ({x} < 0))"
+        return f"metal::sign({x})"
+
+    @staticmethod
+    def truncdiv(a: CSEVariable, b: CSEVariable) -> str:
+        # Same dtype problem as sign; division promotes, so the node's result
+        # is floating exactly when an operand is.  Today's lowering only sends
+        # an integral result here (a float trunc-div lowers as a division and
+        # then a trunc), and a float one still needs the trunc: the bare
+        # quotient would lose it.
+        dtype = _current_node_dtype()
+        if dtype is None:
+            return _InductorMetalOverrides.truncdiv(a, b)
+        quotient = f"{a} / {b}"
+        if dtype.is_floating_point:
+            return f"metal::trunc({quotient})"
+        # MSL integer division truncates toward zero, as "trunc" asks.
+        return quotient
 
 
 # Inductor binds erf, lgamma, the Bessel functions, ... to its own
