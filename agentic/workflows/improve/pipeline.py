@@ -348,7 +348,7 @@ def _scan_prompt(base: str, repo: Path, timeout: float) -> str:
     in_flight = _in_flight(repo)
     minutes = max(1, round(timeout / 60))
     return f"""\
-This is a checkout of the repository at `{base[:12]}`. Find **up to ten** small,
+This is a checkout of the repository at `{base[:12]}`. Find up to **ten** small,
 verifiable improvements in it, and make the case for each.
 
 Another model will investigate your list and choose one; a third will scope it
@@ -357,7 +357,13 @@ the entries by how good you think they are, and do not spend your argument on
 choosing between them -- that comparison is the next model's job, and it can
 make it better than you can. What it cannot do is your half: say **why each one
 should be addressed** (what stays broken, or gets copied, if it is not), what it
-would take, and the one check that decides it.
+would take, and how every factual claim in it was verified.
+
+**Grounding is the gate, not the count.** Each premise in an entry is either
+executed (and its output pasted) or inspected (quoted lines, and the step from
+them to the conclusion). An assumed premise is what made the last two scans rank
+a wrong candidate first. Ten is the target; if six survive grounding, six is the
+answer, and you say which areas you did not reach.
 
 Every entry must be one this run could take (see the policy's "Only takeable
 candidates"): a candidate that is latent, unreachable, or a typo is worse than no

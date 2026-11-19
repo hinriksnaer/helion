@@ -13,11 +13,17 @@ searching was, and the run starts again from a checkout. So:
 
 - **Depth is welcome; spending it is not.** Following one candidate into the
   calls around it, until you know it is real, is the best use of your time.
-  Re-reading what you have, crawling where `rg` would answer, and proving a
-  candidate the next step will prove anyway are not.
-- **You do not have to prove a candidate.** Name the one command or test that
-  would confirm or kill it, and move on: the next step runs it. Proving one here
-  is paid for twice and costs the others.
+  Re-reading what you have, crawling where `rg` would answer, and re-deriving a
+  fact you already wrote down are not.
+- **Every entry is grounded, or it is not an entry.** Two of the last three scans
+  put a wrong candidate first because one premise in it was assumed rather than
+  checked -- "this printer emits `libdevice.pow`", "this `//` truncates" -- and
+  each assumption would have died in one command. A candidate whose factual
+  claims you have not verified is a lead to chase with your next call, not a line
+  in the list. The one exception is a check the machine cannot perform at all
+  (a CuTe launch on an sm86 box, a Pallas launch without `jax`); that entry says
+  so in `evidence` and is worth less, which is why the machine section comes
+  before this one.
 - **Name a candidate as soon as it is worth naming**, and keep what you have in
   your list from then on. Once you have the number your prompt asks for you are
   done; anything after that is enrichment that must leave the list standing if
@@ -25,6 +31,12 @@ searching was, and the run starts again from a checkout. So:
 - **An angle that stops paying is a result.** A file that turns out to be
   well-tended, a search that finds nothing: say so and turn to something else,
   rather than digging for a fourth way to look at the same code.
+- **Spend the clock, or account for it -- on grounding.** A family that has
+  produced nothing in about eight minutes is closed and its time moves to another
+  family; and if you stop with more than half your time left, say what you chose
+  not to do. The clock is for making entries true, not for making more of them:
+  six grounded entries that the next step can act on beat ten that need
+  re-derivation.
 
 ## What the machine can check
 
@@ -207,8 +219,18 @@ Each entry is the same shape, and each argues itself:
    and how wide it is (the count, the family, the sibling it would stop);
 3. the line you saw, quoted, with `file:line`;
 4. what it would take -- one method, three call sites, a hook that already exists;
-5. the one check that confirms or kills it, and whether it runs here or in a
-   named CI lane;
+5. **`evidence:`** -- how each factual claim in the entry was verified, and the
+   one check that decides the change. Two forms are acceptable and you say which:
+   - **executed**: you ran it and pasted the line of output that decided it;
+   - **inspected**: every premise is a line you read, quoted with `file:line`, and
+     the step from those lines to the conclusion is written out.
+   There is no third form. "It would emit X", "this would truncate", "that hook is
+   never called" are conclusions, and each needs its executed or inspected
+   backing in the entry. A claim about what generated code *means* -- rounding,
+   overflow, signedness, promotion -- is executed, never inspected:
+   `python -c "import cutlass; print(cutlass.Int64(-3) // 2)"` decides a
+   floor-division claim, where rendering `((a) // (2))` shows the text and says
+   nothing about the value;
 6. what it might break.
 
 Write for the model that will check your work: it is competent, and it will
@@ -216,5 +238,24 @@ disagree with you if you are vague.
 
 Return the number of candidates your prompt asks for. If you genuinely find
 fewer, return fewer and say why; a padded list wastes the investigation that
-comes next. End with what you ruled out and where
-you did not look, because the next step reads that too.
+comes next.
+
+## End with a coverage table
+
+The last block of your answer is a table, because a list of eight tells the next
+step nothing about whether the ninth was considered and dropped or never looked
+at:
+
+```text
+Families: <path list> -- n entries | <path list> -- n entries | ...
+Covered:  <one clause per family: what it read and what it found>
+Not covered: <areas you did not reach, and why>
+Weakest:  <entries whose evidence is inspected where execution was possible, and why>
+```
+
+Keep it to four lines. It is read by the next model to know what it can trust and
+by a person deciding whether the scan is earning its time -- and it is what makes
+a short list legible instead of a shrug.
+
+End with what you ruled out and where you did not look, because the next step
+reads that too.
