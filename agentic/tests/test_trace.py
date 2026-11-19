@@ -79,6 +79,53 @@ class TestLiveView:
             steps=steps,
         )
 
+    def test_a_tall_block_is_cut_to_the_terminal(self) -> None:
+        """A live view taller than the screen scrolls on every refresh.
+
+        The root line carries the run's clock and turn count, so it stays; the
+        rest is the newest lines -- what a person is watching -- and a row says
+        how many were left out.
+        """
+        from agentic.core.trace import block
+
+        slots = [
+            self._slot(worker=f"w{n}", status="done", elapsed=1.0, task_index=n)
+            for n in range(6)
+        ]
+        rows = block(slots, width=100, height=8)
+        assert len(rows) == 8
+        assert rows[0].startswith("\N{BLACK RIGHT-POINTING SMALL TRIANGLE}")
+        assert "earlier line(s)" in rows[1]
+        assert any("w5" in row for row in rows), "the newest turn must be visible"
+
+    def test_a_finished_turn_drops_its_tool_lines_before_anything_is_cut(self) -> None:
+        """The economy before the cut: commentary goes, the summary stays.
+
+        A finished turn's tool lines were the running commentary; its worker line
+        already carries how long it took and what it found, so they are the first
+        thing to give up when the block does not fit.
+        """
+        from agentic.core.trace import Entry
+        from agentic.core.trace import block
+
+        slot = self._slot(status="done", elapsed=12.0)
+        for index in range(3):
+            slot.add(
+                Entry(
+                    kind="tool",
+                    text=f"rg needle{index}",
+                    state="ok",
+                    seconds=0.5,
+                    seq=index,
+                )
+            )
+        full = block([slot], width=100)
+        assert any("needle0" in row for row in full)
+        tight = block([slot], width=100, height=4)
+        assert len(tight) <= 4
+        assert not any("needle0" in row for row in tight)
+        assert any("deepseek" in row for row in tight)
+
     def test_a_run_is_a_root_over_its_tasks_and_workers(self) -> None:
         from agentic.core.trace import Entry
         from agentic.core.trace import block

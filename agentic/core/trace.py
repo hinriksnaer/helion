@@ -653,13 +653,37 @@ def children(ledger: Ledger, *, frame: int = 0, base: str = _WORKER) -> list[str
     return rows
 
 
-def block(slots: list[Slot], *, width: int = 80, frame: int = 0) -> list[str]:
+def block(
+    slots: list[Slot], *, width: int = 80, frame: int = 0, height: int | None = None
+) -> list[str]:
     """The whole run: a root, one line per task, and its workers under them.
 
     Grouping by task is what makes a run over several tasks readable: eight
     reviewer turns otherwise appear as eight unrelated blocks with no indication
     of which task they belong to or how much of the run is left.
+
+    ``height`` is the terminal's, when there is one, and a block taller than the
+    screen scrolls the whole view on every refresh -- which leaves a screenful of
+    half-drawn frames. Two economies apply, in that order, before anything is
+    dropped: a finished turn's tool lines go (its worker line already carries the
+    duration, the call count and the verdict), and if it is still too tall the
+    block is cut to the newest lines with a row saying how many were left out.
+    Without a ``height`` -- a file, a pipe, a test -- nothing is economised and
+    every line is drawn.
     """
+    rows = _block_rows(slots, width=width, frame=frame, collapse=False)
+    if height is None or len(rows) <= max(height, 1):
+        return rows
+    rows = _block_rows(slots, width=width, frame=frame, collapse=True)
+    if len(rows) <= max(height, 1):
+        return rows
+    return _clamp(rows, height=height, width=width)
+
+
+def _block_rows(
+    slots: list[Slot], *, width: int, frame: int, collapse: bool
+) -> list[str]:
+    """The block's lines, with a finished turn's commentary kept or dropped."""
     done = sum(1 for slot in slots if slot.status != "running")
     rows = [
         _fit(
@@ -671,8 +695,10 @@ def block(slots: list[Slot], *, width: int = 80, frame: int = 0) -> list[str]:
         rows.append(_fit(task_line(group, index), width))
         for slot in group:
             rows.append(_fit(worker_line(slot, frame=frame), width))
-            for row in children(slot, frame=frame):
-                rows.append(_fit(row, width))
+            live = slot.status == "running" or not collapse
+            if live:
+                for row in children(slot, frame=frame):
+                    rows.append(_fit(row, width))
             # A delegate's calls are nested under its own line, one indent in: two
             # sub-runs on one turn are two blocks, not one interleaved list. Only
             # the last few are drawn -- a turn that delegates forty times must not
@@ -685,10 +711,27 @@ def block(slots: list[Slot], *, width: int = 80, frame: int = 0) -> list[str]:
                 )
             for name, ledger in delegates[dropped:]:
                 rows.append(_fit(delegate_line(name, ledger, frame=frame), width))
+                if not live:
+                    continue
                 # One indent under the delegate's line: `children` adds the leaf.
                 for row in children(ledger, frame=frame, base=f"{_WORKER}{_LEAF}"):
                     rows.append(_fit(row, width))
     return rows
+
+
+def _clamp(rows: list[str], *, height: int, width: int) -> list[str]:
+    """Cut the block to the terminal: the root line, then the newest lines.
+
+    The root carries the run's clock and its turn count, so it survives; what is
+    dropped is the oldest body line, with a row saying how many. A terminal with
+    no room for even that keeps its last line, which is the running turn.
+    """
+    if height < 3:
+        return rows[-max(height, 1) :]
+    tail = rows[-(height - 2) :]
+    omitted = len(rows) - 1 - len(tail)
+    marker = _fit(f"{_WORKER}{_LEAF}… {omitted} earlier line(s)", width)
+    return [rows[0], marker, *tail]
 
 
 def _summarise(*, done: int, total: int) -> str:
@@ -1006,7 +1049,7 @@ class TreeView(SpanProcessor):
             width = self._console.width
         # One block for the whole run: the root and its tasks are what make a
         # per-commit run legible, so this must not be drawn per turn.
-        rows = block(slots, width=width, frame=self._frame)
+        rows = block(slots, width=width, frame=self._frame, height=self._console.height)
         text = Text(no_wrap=True, overflow="ellipsis")
         for index, row in enumerate(rows):
             if index:
