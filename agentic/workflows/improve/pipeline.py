@@ -348,11 +348,22 @@ def _scan_prompt(base: str, repo: Path, timeout: float) -> str:
     in_flight = _in_flight(repo)
     minutes = max(1, round(timeout / 60))
     return f"""\
-This is a checkout of the repository at `{base[:12]}`. Find five small,
-verifiable improvements in it.
+This is a checkout of the repository at `{base[:12]}`. Find **up to ten** small,
+verifiable improvements in it, and make the case for each.
 
 Another model will investigate your list and choose one; a third will scope it
-and a fourth will build it. So make the case for each one, and name the files.
+and a fourth will build it. So the list is a menu, not a ranking: do not order
+the entries by how good you think they are, and do not spend your argument on
+choosing between them -- that comparison is the next model's job, and it can
+make it better than you can. What it cannot do is your half: say **why each one
+should be addressed** (what stays broken, or gets copied, if it is not), what it
+would take, and the one check that decides it.
+
+Every entry must be one this run could take (see the policy's "Only takeable
+candidates"): a candidate that is latent, unreachable, or a typo is worse than no
+entry, because the next step has to spend a turn discarding it. If a broad search
+still leaves you short of ten, return fewer and say which areas you did not
+reach.
 
 This step has about {minutes} minutes of wall clock before it is stopped, and a
 delegation to a copy of yourself has been taking five to ten of them. Start one

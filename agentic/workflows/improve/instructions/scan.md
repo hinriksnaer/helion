@@ -90,6 +90,11 @@ you cannot name the paths, the family is too broad: narrow it, or keep it
 yourself. Two or three delegates with listed paths beat six with themes, and the
 path list is what stops two of them paying for the same files.
 
+**Ten candidates is three or four families.** Two families cover five candidates
+comfortably and will not cover ten: a family of three or four entries is the size
+that keeps the evidence specific, so decide the families before you delegate and
+make sure that between them they can produce ten things worth taking.
+
 ## What counts
 
 A candidate is a concrete change, not an area. "The autotuner is hard to read"
@@ -107,8 +112,15 @@ lowering that is right but unreadable, the same printing written twice for two
 backends, a `Backend` hook the core still special-cases, an invariant only a
 comment holds. Those are what this project reviews, not polish.
 
-In rough order of what this repository values -- the ranking below is what its
-history shows it lands, not a wish list:
+**Say why it should be addressed, and how wide it is.** The strongest argument a
+candidate has is the consequence of leaving it: what breaks, what gets copied,
+how many places it applies to. Give the count when you know it -- "17 of 832
+modules", "the third printer to inherit this" -- because a class fix is a
+different proposition from a single-site fix, and the next model can only weigh
+that if you say it.
+
+What follows is what this repository lands most often, which is the order to
+reach for a candidate's *case* in -- not an order for your list, and not a rank:
 
 1. a correctness bug with a reproduction -- a wrong result, a crash, a guard
    that does not guard, a silent fallback. About one commit in ten here is this,
@@ -147,6 +159,30 @@ history shows it lands, not a wish list:
    printer that emits code which only fails at runtime, an invariant held by a
    comment or by an `assert` that `python -O` removes.
 
+## Only takeable candidates
+
+The next model investigates and the one after it builds; a candidate it cannot
+take costs them a turn to discard, which is worse than a shorter list. Every
+entry must survive all four:
+
+- **reachable.** The code path exists today, or a default flag nobody flips is
+  the only thing between it and a user. "Would be a bug if `lowers_integer_powers`
+  were enabled" is a note, not a candidate, unless you say why enabling it is the
+  change.
+- **worth its own branch.** A pure deletion is worth one only when it removes a
+  hazard (a swallowed import, a dead probe that runs on every call) -- otherwise
+  fold it into a candidate that touches the same code. A typo, a wording fix or a
+  one-line docs drift is not a candidate; name it inside one that touches the same
+  paragraph.
+- **checked by something that runs.** A command on this machine, or the exact CI
+  lane that will run it, named. "The reviewer will see it" is not a check.
+- **not churn.** A hook exists and nothing calls it, a rename, a "would be
+  cleaner", a preference dressed as a defect: the repository has no appetite for
+  those, and they cost the run a branch.
+
+A latent or cosmetic finding is ranked last and labelled as such -- or left out
+in favour of looking somewhere else. Looking somewhere else is the job.
+
 ## What does not
 
 - Preferences: naming, formatting, file layout.
@@ -158,11 +194,25 @@ history shows it lands, not a wish list:
 
 ## How to write one
 
-A numbered list. For each one: a first line naming the change (imperative, short
-enough to become a branch name), then your case -- the line you saw, the effect,
-the check that would confirm or kill it, what it might break -- and the files it
-is about. Write for the model that will check your work: it is competent, and it
-will disagree with you if you are vague.
+A numbered list, in the order you found them -- not ranked. Rank is a comparison,
+and the comparison belongs to the next model, which knows the run's budget and
+will investigate anyway; a number in front of an entry only tells it what you
+thought before you had its evidence.
+
+Each entry is the same shape, and each argues itself:
+
+1. a first line naming the change -- imperative, short enough to become a branch
+   name;
+2. **why it should be addressed**: what stays broken or gets copied if it is not,
+   and how wide it is (the count, the family, the sibling it would stop);
+3. the line you saw, quoted, with `file:line`;
+4. what it would take -- one method, three call sites, a hook that already exists;
+5. the one check that confirms or kills it, and whether it runs here or in a
+   named CI lane;
+6. what it might break.
+
+Write for the model that will check your work: it is competent, and it will
+disagree with you if you are vague.
 
 Return the number of candidates your prompt asks for. If you genuinely find
 fewer, return fewer and say why; a padded list wastes the investigation that

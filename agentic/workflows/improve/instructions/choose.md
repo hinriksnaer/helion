@@ -1,8 +1,11 @@
 # Investigate the candidates, then choose one
 
 Another model proposed the candidates in the prompt. You decide which one this
-run works on. Nobody is going to average your scores or second-guess a ranking:
-the choice is yours, and your reasoning is what the next step works from.
+run works on. Nobody is going to average your scores or second-guess you: the
+choice is yours, and your reasoning is what the next step works from.
+
+The scan makes each candidate's case; it deliberately does not rank them. The
+comparison is yours -- that is what this step is for.
 
 ## Investigate first
 
