@@ -80,17 +80,23 @@ State the observable effect, or say **internal only**:
 When the code you are planning around is strained at the seam -- a shared base
 class carrying one backend's runtime helper, a `backend_name == "x"` string where
 a hook already exists, the same eight lines in three printers, a flag that gates
-an invariant nothing tests -- plan the fix **in this branch** if, and only if, all
-three hold:
+an invariant nothing tests -- you may plan the fix **in this branch**, but only
+when the change needs it: without that fix the behaviour change cannot be made
+cleanly (the refactor underneath it has to exist first), or it removes a live
+hazard in the same seam. A tidy-up you merely noticed is the next candidate, not
+this branch.
+
+When it does qualify, all three must hold:
 
 1. it is behaviour-preserving, and you can say how you know -- the same renders,
-   the same results, an existing test still pinning it;
+   the same results, an existing test still pinning it. Put that evidence in the
+   plan: it is the first thing the reviewer will ask for;
 2. it is local: the same file, or the same call path this change already touches,
    so a reviewer reads one neighbourhood;
 3. it is its own commit in the list above -- below the behaviour change when that
    change needs it.
 
-One such commit per branch at most. If any of the three fails, it is the next
+One such commit per branch at most. If any of these fails, it is the next
 candidate, not this branch: name it in your answer with the one command that
 would show it.
 
